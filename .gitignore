@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+venv.bak/
+venv311/
+
+# dotenv environment file
+.env
+
+# Editor directories
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# TTS / OCR debug images
+kindle_debug_*.png
