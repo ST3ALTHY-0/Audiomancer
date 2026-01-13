@@ -65,7 +65,7 @@ async def get_voice_list(timeout: float = 2.0) -> VoiceStore:
         return store
 
     try:
-        from kindleReader import start_tts_server_once
+        from old.kindleReader import start_tts_server_once
         await start_tts_server_once()
     except Exception:
         # if the function isn't available or import fails, continue — server auto-start is optional

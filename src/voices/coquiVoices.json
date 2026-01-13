@@ -1,0 +1,94 @@
+[
+  {
+    "index": 0,
+    "model": "tts_models/multilingual/multi-dataset/xtts_v2",
+    "person": "777 (fling93)",
+    "origin": "LibriSpeech",
+    "sample": "samples/777-126732-0028.wav",
+    "description": "A clear, neutral American English male voice."
+  },
+  {
+    "index": 1,
+    "model": "coqui-tts-en-v1",
+    "person": "Jane Smith",
+    "sample": "samples/jane_smith.wav",
+    "description": "A warm, expressive American English female voice."
+  },
+  {
+    "index": 2,
+    "model": "coqui-tts-multilingual-v2",
+    "person": "Carlos",
+    "sample": null,
+    "description": "A lively Spanish male voice, suitable for narration."
+  },
+  {
+    "index": 3,
+    "model": "tts_models/en/vctk/vits",
+    "person": "p228",
+    "sample": null,
+    "description": "Male voice from VCTK corpus, speaker p228."
+  },
+  {
+    "index": 4,
+    "model": "tts_models/en/vctk/vits",
+    "person": "p234",
+    "sample": null,
+    "description": "Male voice from VCTK corpus, speaker p234."
+  },
+  {
+    "index": 5,
+    "model": "tts_models/en/vctk/vits",
+    "person": "p251",
+    "sample": null,
+    "description": "Male voice from VCTK corpus, speaker p251."
+  },
+  {
+    "index": 6,
+    "model": "tts_models/en/vctk/vits",
+    "person": "p254",
+    "sample": null,
+    "description": "Male voice from VCTK corpus, speaker p254."
+  },
+  {
+    "index": 7,
+    "model": "tts_models/en/vctk/vits",
+    "person": "p297",
+    "sample": null,
+    "description": "Female voice from VCTK corpus, speaker p297."
+  },
+  {
+    "index": 8,
+    "model": "tts_models/en/vctk/vits",
+    "person": "p314",
+    "sample": null,
+    "description": "Female voice from VCTK corpus, speaker p314."
+  },
+  {
+    "index": 9,
+    "model": "tts_models/en/vctk/vits",
+    "person": "p333",
+    "sample": null,
+    "description": "Female voice from VCTK corpus, speaker p333."
+  },
+  {
+    "index": 10,
+    "model": "tts_models/en/vctk/vits",
+    "person": "p334",
+    "sample": null,
+    "description": "Female voice from VCTK corpus, speaker p334."
+  },
+  {
+    "index": 11,
+    "model": "tts_models/en/vctk/vits",
+    "person": "p335",
+    "sample": null,
+    "description": "Female voice from VCTK corpus, speaker p335."
+  },
+  {
+    "index": 12,
+    "model": "tts_models/en/vctk/vits",
+    "person": "p339",
+    "sample": null,
+    "description": "Female voice from VCTK corpus, speaker p339."
+  }
+]

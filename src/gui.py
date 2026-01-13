@@ -1,10 +1,24 @@
 # gui.py
 import tkinter as tk
 from tkinter import ttk
-import asyncio, threading
-from kindleReader import main_loop
+import threading
+import asyncio
+import time
+import sys
+
+if sys.platform == "win32":
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)  # SYSTEM_AWARE
+    except Exception as e:
+        print(f"DPI awareness setup failed: {e}")
+
+from orchestrator import KindleReaderOrchestrator
+from services.tts_python import CoquiTTSService
+from services.screen_capture import ScreenCaptureService
+from services.ocr_service import OCRService
+from controllers.kindle_controller import KindleController
 import config
-from utils import get_voice_list, load_voices
 
 class KindleTTSApp:
     def __init__(self, root):
@@ -13,160 +27,156 @@ class KindleTTSApp:
         self.root.geometry("900x500")
         self.root.minsize(800, 450)
 
-        # center window
+        # Center window
         self.root.update_idletasks()
-        width = 900
-        height = 500
+        width, height = 900, 500
         x = (self.root.winfo_screenwidth() // 2) - (width // 2)
         y = (self.root.winfo_screenheight() // 2) - (height // 2)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
 
+        # Async loop for orchestrator
         self.loop = asyncio.new_event_loop()
-        self.stop_event = threading.Event()
-        self.task = None
+        self.stop_event = asyncio.Event()
+        self.orchestrator = None
 
-        # Main layout: left (settings), right (voice list)
-        main = ttk.Frame(root, padding=10)
-        main.pack(fill=tk.BOTH, expand=True)
+        # --- TTS SETTINGS PANEL ---
+        left = ttk.Frame(root, padding=10)
+        left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        left = ttk.Frame(main)
-        left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        ttk.Label(left, text="TTS Settings", font=("Segoe UI", 12, "bold")).pack(anchor=tk.W)
 
-        right = ttk.Frame(main)
-        right.pack(side=tk.RIGHT, fill=tk.Y)
+        self.voice_var = tk.StringVar(value=getattr(config, "COQUI_VOICE", "p254"))
+        self.rate_var = tk.StringVar(value=str(getattr(config, "TTS_RATE", 1.0)))
+        self.volume_var = tk.StringVar(value=str(getattr(config, "TTS_VOLUME", 100)))
 
-        # --- LEFT PANEL: TTS SETTINGS + CONTROL ---
-        ttk.Label(left, text="TTS Settings", font=("Segoe UI", 12, "bold")).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 5))
+        self.tts_service = None  # Will be set in _run_orchestrator
 
-        ttk.Label(left, text="Voice:").grid(row=1, column=0, sticky=tk.W, pady=3)
-        self.voice_var = tk.StringVar(value=config.TTS_VOICE)
-        ttk.Entry(left, textvariable=self.voice_var, width=35).grid(row=1, column=1, sticky="w")
+        # Trace changes to update TTS settings live
+        self.voice_var.trace_add('write', self._on_voice_change)
+        self.rate_var.trace_add('write', self._on_rate_change)
+        self.volume_var.trace_add('write', self._on_volume_change)
 
-        ttk.Label(left, text="Rate:").grid(row=2, column=0, sticky=tk.W, pady=3)
-        self.rate_var = tk.StringVar(value=config.TTS_RATE)
-        ttk.Entry(left, textvariable=self.rate_var, width=35).grid(row=2, column=1, sticky="w")
+        ttk.Label(left, text="Voice:").pack(anchor=tk.W)
+        ttk.Entry(left, textvariable=self.voice_var, width=35).pack(anchor=tk.W)
+        ttk.Label(left, text="Rate:").pack(anchor=tk.W)
+        ttk.Entry(left, textvariable=self.rate_var, width=35).pack(anchor=tk.W)
+        ttk.Label(left, text="Volume:").pack(anchor=tk.W)
+        ttk.Entry(left, textvariable=self.volume_var, width=35).pack(anchor=tk.W)
 
-        ttk.Label(left, text="Volume:").grid(row=3, column=0, sticky=tk.W, pady=3)
-        self.volume_var = tk.StringVar(value=config.TTS_VOLUME)
-        ttk.Entry(left, textvariable=self.volume_var, width=35).grid(row=3, column=1, sticky="w")
+        ttk.Separator(left).pack(fill=tk.X, pady=10)
 
-        self.tcp_var = tk.BooleanVar(value=config.TTS_USE_TCP)
-        ttk.Checkbutton(left, text="Use TCP mode", variable=self.tcp_var).grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=5)
+        # --- CONTROL BUTTONS ---
+        self.start_btn = ttk.Button(left, text="▶ Start Reading", command=self.start)
+        self.start_btn.pack(side=tk.LEFT, padx=5)
+        self.stop_btn = ttk.Button(left, text="■ Stop", command=self.stop, state=tk.DISABLED)
+        self.stop_btn.pack(side=tk.LEFT, padx=5)
 
-        ttk.Separator(left).grid(row=5, column=0, columnspan=2, pady=10, sticky="ew")
-
-        ttk.Label(left, text="Controls", font=("Segoe UI", 12, "bold")).grid(row=6, column=0, columnspan=2, sticky="w", pady=(0, 5))
-
-        control_frame = ttk.Frame(left)
-        control_frame.grid(row=7, column=0, columnspan=2, pady=(0, 5), sticky="w")
-
-        self.start_btn = ttk.Button(control_frame, text="▶ Start Reading", command=self.start)
-        self.start_btn.grid(row=0, column=0, padx=3)
-
-        self.stop_btn = ttk.Button(control_frame, text="■ Stop", command=self.stop, state=tk.DISABLED)
-        self.stop_btn.grid(row=0, column=1, padx=3)
-
-        self.add_voice_btn = ttk.Button(control_frame, text="➕ Load Voices", command=self.add_voices)
-        self.add_voice_btn.grid(row=0, column=2, padx=3)
-
-        ttk.Button(control_frame, text="Exit", command=self.exit_program).grid(row=0, column=3, padx=3)
-
-        ttk.Separator(left).grid(row=8, column=0, columnspan=2, pady=10, sticky="ew")
-
-        ttk.Label(left, text="Status", font=("Segoe UI", 12, "bold")).grid(row=9, column=0, columnspan=2, sticky="w", pady=(0, 5))
+        # --- STATUS PANEL ---
+        ttk.Separator(left).pack(fill=tk.X, pady=10)
+        ttk.Label(left, text="Status", font=("Segoe UI", 12, "bold")).pack(anchor=tk.W)
         self.status_var = tk.StringVar(value="Stopped")
-        ttk.Label(left, textvariable=self.status_var, foreground="gray").grid(row=10, column=0, columnspan=2, sticky="w")
+        ttk.Label(left, textvariable=self.status_var, foreground="gray").pack(anchor=tk.W)
 
-        # --- RIGHT PANEL: VOICE LIST ---
-        ttk.Label(right, text="Available Voices", font=("Segoe UI", 12, "bold")).pack(anchor=tk.W)
-        self.search_var = tk.StringVar()
-        self.search_entry = ttk.Entry(right, textvariable=self.search_var)
-        self.search_entry.pack(fill=tk.X, pady=(4, 6))
-        self.search_var.trace_add('write', lambda *_: self._filter_voices())
+        ttk.Label(left, text="Current Page:").pack(anchor=tk.W, pady=(10,0))
+        self.page_var = tk.StringVar(value="")
+        ttk.Label(left, textvariable=self.page_var, wraplength=400, justify="left").pack(anchor=tk.W)
 
-        self.voice_listbox = tk.Listbox(right, height=20, width=40)
-        self.voice_listbox.pack(fill=tk.BOTH, expand=True)
-        self.voice_listbox.bind('<Double-1>', lambda e: self._select_voice_from_list())
+        ttk.Label(left, text="Current Sentence:").pack(anchor=tk.W, pady=(10,0))
+        self.sentence_var = tk.StringVar(value="")
+        ttk.Label(left, textvariable=self.sentence_var, wraplength=400, justify="left", foreground="blue").pack(anchor=tk.W)
 
-        self.select_voice_btn = ttk.Button(right, text="Select Voice", command=self._select_voice_from_list)
-        self.select_voice_btn.pack(fill=tk.X, pady=(6, 0))
+        ttk.Label(left, text="Time Remaining:").pack(anchor=tk.W, pady=(10,0))
+        self.remaining_var = tk.StringVar(value="0.0s")
+        ttk.Label(left, textvariable=self.remaining_var, foreground="red").pack(anchor=tk.W)
 
-        # load persisted voices
-        self._voices_store = load_voices()
-        self._all_voice_items = []
-        self._populate_voice_list()
-
+    # -------------------- ORCHESTRATOR CONTROL --------------------
     def start(self):
-        config.TTS_VOICE = self.voice_var.get()
-        config.TTS_RATE = self.rate_var.get()
-        config.TTS_VOLUME = self.volume_var.get()
-        config.TTS_USE_TCP = self.tcp_var.get()
-
-        self.stop_event.clear()
         self.start_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
+        self.status_var.set("Initializing...")
 
-        def runner():
-            asyncio.set_event_loop(self.loop)
-            self.task = self.loop.create_task(main_loop(self.stop_event))
-            self.loop.run_until_complete(self.task)
+        # Reset stop event
+        self.stop_event.clear()
 
-        threading.Thread(target=runner, daemon=True).start()
-        self.status_var.set("Running — open Kindle window")
+        # Launch orchestrator in background thread
+        threading.Thread(target=self._run_orchestrator, daemon=True).start()
 
-    def _fetch_voices_thread(self):
-        try:
-            self.root.after(0, lambda: self.status_var.set("Fetching voices..."))
-            store = asyncio.run(get_voice_list())
-
-            def finish(store=store):
-                self._voices_store = store
-                self._populate_voice_list()
-                count = len(getattr(store, 'voices', []))
-                self.status_var.set(f"Voices added: {count}")
-
-            self.root.after(0, finish)
-        except Exception as e:
-            self.root.after(0, lambda: self.status_var.set(f"Voice fetch failed: {e}"))
-
-    def add_voices(self):
-        threading.Thread(target=self._fetch_voices_thread, daemon=True).start()
-
-    def _populate_voice_list(self):
-        self.voice_listbox.delete(0, tk.END)
-        self._all_voice_items = []
-        if not self._voices_store:
-            return
-        for v in getattr(self._voices_store, 'voices', []):
-            label = f"{v.name} — {getattr(v, 'locale', '')}"
-            self._all_voice_items.append((label, v))
-            self.voice_listbox.insert(tk.END, label)
-
-    def _filter_voices(self):
-        q = self.search_var.get().lower().strip()
-        self.voice_listbox.delete(0, tk.END)
-        for label, v in self._all_voice_items:
-            if not q or q in label.lower():
-                self.voice_listbox.insert(tk.END, label)
-
-    def _select_voice_from_list(self):
-        sel = self.voice_listbox.curselection()
-        if not sel:
-            return
-        label = self.voice_listbox.get(sel[0])
-        for lab, v in self._all_voice_items:
-            if lab == label:
-                self.voice_var.set(v.name)
-                config.TTS_VOICE = v.name
-                self.status_var.set(f"Selected: {v.name}")
-                return
+    def _set_status_safe(self, msg):
+        self.root.after(0, lambda: self.status_var.set(msg))
 
     def stop(self):
-        self.stop_event.set()
+        if self.orchestrator:
+            self.loop.call_soon_threadsafe(self.stop_event.set)
         self.start_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
         self.status_var.set("Stopped")
 
-    def exit_program(self):
-        self.stop()
-        self.root.destroy()
+    def _run_orchestrator(self):
+        asyncio.set_event_loop(self.loop)
+        try:
+            self._set_status_safe("Initializing TTS service...")
+            self.tts_service = CoquiTTSService(
+                model=getattr(config, 'COQUI_MODEL', 'tts_models/en/vctk/vits'),
+                voice=self.voice_var.get(),
+                rate=float(self.rate_var.get()),
+                volume=int(self.volume_var.get()),
+                espeak_path=getattr(config, 'COQUI_ESPEAK_PATH', None),
+            )
+            self._set_status_safe("Initializing Kindle controller...")
+            kindle = KindleController()
+            self._set_status_safe("Initializing screen capture...")
+            screen_capture = ScreenCaptureService()
+            self._set_status_safe("Initializing OCR service...")
+            ocr = OCRService(config.TESSERACT_PATH)
+            self.orchestrator = KindleReaderOrchestrator(self.tts_service, kindle, screen_capture, ocr)
+
+            self._set_status_safe("Starting reading loop...")
+            # Run orchestrator with GUI callbacks for status updates
+            self.loop.run_until_complete(self.orchestrator.run_with_callbacks(
+                stop_event=self.stop_event,
+                on_page_update=self._update_page,
+                on_sentence_update=self._update_sentence,
+                on_time_update=self._update_remaining
+            ))
+            self._set_status_safe("Stopped")
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            self._set_status_safe(f"Error: {e}\n{tb}")
+        finally:
+            self.start_btn.config(state=tk.NORMAL)
+            self.stop_btn.config(state=tk.DISABLED)
+
+    def _on_voice_change(self, *args):
+        if self.tts_service:
+            self.tts_service.set_voice(self.voice_var.get())
+
+    def _on_rate_change(self, *args):
+        if self.tts_service:
+            try:
+                self.tts_service.set_rate(float(self.rate_var.get()))
+            except ValueError:
+                pass
+
+    def _on_volume_change(self, *args):
+        if self.tts_service:
+            try:
+                self.tts_service.set_volume(int(self.volume_var.get()))
+            except ValueError:
+                pass
+
+    # -------------------- CALLBACKS --------------------
+    def _update_page(self, text: str):
+        self.root.after(0, lambda: self.page_var.set(text[:500]))  # limit length
+
+    def _update_sentence(self, text: str):
+        self.root.after(0, lambda: self.sentence_var.set(text))
+
+    def _update_remaining(self, seconds: float):
+        self.root.after(0, lambda: self.remaining_var.set(f"{seconds:.1f}s"))
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = KindleTTSApp(root)
+    root.mainloop()
