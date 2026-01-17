@@ -39,6 +39,6 @@ VOICES_FILE = os.path.join(VOICES_DIR, 'voices.json')
 #tts_models/en/vctk/vits
 
 
-COQUI_MODEL = "tts_models/multilingual/multi-dataset/xtts_v2"
+COQUI_MODEL = "tts_models/en/vctk/vits"
 COQUI_VOICE = "p254"  # speaker ID for VCTK model
 COQUI_ESPEAK_PATH = r"C:\Program Files\eSpeak NG\espeak-ng.exe"  # Windows only

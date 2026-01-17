@@ -73,5 +73,11 @@ Troubleshooting
 - If audio playback hangs or doesn't stop on Ctrl+C, confirm the TTS exe responds to SIGTERM/kill or update the Python wrapper to use a different child termination strategy.
 
 
+//new 
+Using the VCTK is the easiest, due to it being a pretained model, and it can generate text faster than it is spoken. 
+
+Xtts can have any 'voice' but is a work in progress because it only works well with deepspeed a mostly linux library (can be used with windows, but it requires specific steps to do so). but as of now Xtts takes longer to generate speech than it takes to ouput it, 290sec to gen and 270 to speek, as well as using 60+ percent of my 3090 so it isnt greatly useful rn
+
+
 License
 GNU General Public License (GPL)

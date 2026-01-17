@@ -1,26 +1,23 @@
-# import os
+import requests
 
-# # MUST be set before importing TTS
-# os.environ["PHONEMIZER_ESPEAK_PATH"] = r"C:\Program Files\eSpeak NG\espeak-ng.exe"
-import torch
-import simpleaudio as sa
-from TTS.api import TTS
+url = "http://127.0.0.1:8020/tts_to_file"
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+speaker_wav = r"C:\Programming\Python\kindleReader\src\voices\samples\777-126732-0028.wav"
+output_wav = "output.wav"
 
-print(TTS().list_models())
+with open(speaker_wav, "rb") as f:
+    response = requests.post(
+        url,
+        files={"speaker_wav": f},
+        data={
+            "text": "Hello! This is a test using the XTTS server without streaming.",
+            "language": "en"
+        }
+    )
 
-tts = TTS("tts_models/en/vctk/vits").to(device)
+response.raise_for_status()
 
-print(tts.speakers)
+with open(output_wav, "wb") as out:
+    out.write(response.content)
 
-
-tts.tts_to_file(
-    text="Speaking now",
-    speaker="p229",
-    file_path="out.wav",
-    
-)
-
-wave = sa.WaveObject.from_wave_file("out.wav")
-wave.play().wait_done()
+print("Saved:", output_wav)

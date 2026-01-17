@@ -1,11 +1,35 @@
-
 # Core dependencies required by the reader (install with pip)
-Pillow
-pytesseract
-pygetwindow
-pywinauto
-pywin32
+
+# GUI and async
+tkinter-async>=0.1.0
+
+# OCR
+pytesseract>=0.3.10
+Pillow>=10.0.0
+
+# TTS
+TTS>=0.22.0  # Coqui TTS
+torch>=2.0.0
+torchaudio>=2.0.0
+RealtimeTTS>=0.3.0  # Real-time streaming TTS with Piper support
+piper-tts>=1.0.0  # Lightweight pretrained TTS engine
+
+# Audio playback
+sounddevice>=0.4.6
+soundfile>=0.12.1
+numpy>=1.24.0
+pyaudio>=0.2.13
+
+# Windows automation
+pywin32>=306
+pygetwindow>=0.0.9
+
+# HTTP client for XTTS streaming
+requests>=2.31.0
+
+# Async utilities
+asyncio>=3.4.3
 
 # Note: Tesseract OCR is a native application and must be installed separately
 # (https://github.com/tesseract-ocr/tesseract). Set pytesseract.pytesseract.tesseract_cmd
-# in `kindleReader.py` to your tesseract.exe path.
+# in `config.py` to your tesseract.exe path.

@@ -20,11 +20,13 @@ venv311/
 
 # OS files
 .DS_Store
+Thumbs.db
 
 # Build artifacts
 build/
 dist/
 *.egg-info/
+src/build/
 
 # TTS / OCR debug images
 kindle_debug_*.png
@@ -34,3 +36,33 @@ debug_images/
 
 # ignore any .spec files in the src directory
 src/**/*.spec
+
+# TTS temporary audio files
+temp_speech_*.wav
+*.wav
+
+# Model files (large)
+models/
+xtts_models/
+
+# Output directory
+output/
+
+# Config backup files
+config/*.bak
+voices/samples/*.wav
+
+# PyInstaller
+*.spec
+*.manifest
+
+# Jupyter
+*.ipynb_checkpoints
+
+# Logs
+*.log
+
+# Windows executable
+*.exe
+*.dll
+*.pyd
