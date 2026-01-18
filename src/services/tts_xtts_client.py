@@ -4,20 +4,17 @@ import time
 import sys
 import requests
 from typing import Iterator
+import subprocess
 
-# Example text streaming generator
-def stream_tts(text: str, model_id: str, chunk_size: int = 20) -> Iterator[bytes]:
+def stream_tts(text: str, chunk_size: int = 20) -> Iterator[bytes]:
     """
-    Stream XTTS V2 audio bytes from Baseten endpoint.
+    Stream XTTS V2 audio bytes from local server on port 8020.
     """
-    baseten_api_key = os.environ.get("BASETEN_API_KEY")
-    if not baseten_api_key:
-        raise RuntimeError("Set BASETEN_API_KEY environment variable")
-
+    server_url = "http://localhost:8020"
+    
     start = time.perf_counter()
     res = requests.post(
-        f"https://model-{model_id}.api.baseten.co/development/predict",
-        headers={"Authorization": f"Api-Key {baseten_api_key}"},
+        f"{server_url}/tts_stream",
         json={"text": text, "chunk_size": chunk_size},
         stream=True,
     )
@@ -36,8 +33,28 @@ def stream_tts(text: str, model_id: str, chunk_size: int = 20) -> Iterator[bytes
         if chunk:
             yield chunk
 
-# xtts_client.py (continued)
-import subprocess
+def tts_to_wav(text: str, output_path: str = None) -> str:
+    """
+    Get TTS audio as WAV file from local server.
+    Returns path to saved WAV file.
+    """
+    server_url = "http://localhost:8020"
+    
+    res = requests.post(
+        f"{server_url}/tts_to_file",
+        json={"text": text}
+    )
+    
+    if res.status_code != 200:
+        raise RuntimeError(f"Error: {res.text}")
+    
+    if output_path is None:
+        output_path = f"output_{int(time.time())}.wav"
+    
+    with open(output_path, 'wb') as f:
+        f.write(res.content)
+    
+    return output_path
 
 def play_stream(audio_stream):
     """
@@ -62,4 +79,3 @@ def play_stream(audio_stream):
         finally:
             proc.stdin.close()
             proc.wait()
-

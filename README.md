@@ -1,83 +1,207 @@
-# KindleReader TTS
+# Kindle Reader TTS
 
-Small utility to OCR text from the Kindle Windows app and read it aloud using a local TTS engine, so we can get natural sounding TTS instead of robotic trash.
+A Windows utility that uses OCR to extract text from the Kindle app and reads it aloud using local TTS engines with natural-sounding voices. Features synchronized page turning and smart audio prefetching for seamless reading.
 
-Features
-- Capture Kindle window text via Tesseract OCR
-- Play spoken audio via a local TTS application (configurable)
-- Designed for Windows (uses Win32 / pywinauto background capture)
-- Kindle can be in the background and the program will not focus it or interrupt your system in any way, but it can not be minimized in order for
-the screen capture to work (You can drag the tab so far down that you can only see a very small portion of the window though)
+## Features
 
-Quick start
+- **Smart OCR Integration**: Captures text from Kindle Windows app using Tesseract OCR
+- **Multiple TTS Engines**: 
+  - Coqui TTS (VCTK/VITS) - Fast, pretrained models with good quality
+  - XTTS v2 - Custom voice cloning with streaming support
+  - gTTS - Fast fallback option
+- **Synchronized Reading**: Page turns automatically sync with spoken audio
+- **Smart Prefetching**: Generates next page audio while current page plays for seamless transitions
+- **Contraction Handling**: Automatically expands contractions for better VITS pronunciation
+- **Background Operation**: Works with Kindle in background (window must be visible, not minimized)
+- **GPU Acceleration**: CUDA support for faster TTS generation on compatible GPUs
 
-1. Install prerequisites
- - Install Python 3.8+ (I used 3.11)
- - Install Tesseract OCR for Windows and note the install path (default: `C:\Program Files\Tesseract-OCR`).
- - Install Python packages (you probably want to do this inside a virtualenv):
+## Quick Start
+
+### 1. Install Prerequisites
+
+**Python 3.11+** (recommended)
+
+**Tesseract OCR**:
+- Download from [GitHub releases](https://github.com/UB-Mannheim/tesseract/wiki)
+- Note installation path (default: `C:\Program Files\Tesseract-OCR`)
+
+**Python Packages**:
 ```cmd
+# Create virtual environment (recommended)
+python -m venv venv311
+venv311\Scripts\activate
+
 # Upgrade pip
 python -m pip install --upgrade pip
 
-# Install runtime dependencies (recommended inside a virtualenv)
-python -m pip install pywinauto pygetwindow pywin32 pillow pytesseract
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-or install with:
-```cmd
-python -m pip install -r requirements.txt
+### 2. Configure Tesseract Path
+
+Edit `src/config.py` and set the Tesseract path:
+```python
+TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 ```
 
-Notes
-- This project is Windows-oriented and uses Win32 APIs for background capture. Behavior on other OSes is not tested.
-- Keep secrets (API keys) out of source control. Add `.env` to `.gitignore`.
+### 3. Download TTS Models
 
-TTS engine
-----------------------------------
+**For Coqui VCTK (recommended for beginners)**:
+Models download automatically on first run.
 
-This project relies on an external native TTS application that provides the actual speech synthesis through editing the SAPI5 engine and editing some registry keys among other things.
+**For XTTS (voice cloning)**:
+1. Models download automatically
+2. Place reference voice samples in `speakers/` directory
+3. Samples should be clear, 6-12 seconds of speech
 
-Key points
-- The Python wrapper expects the native TTS executable path to be available (either configured inside `kindleReader.py` or via an environment variable `TTS_EXE`).
-
-Typical setup
-1. Initialize submodules after cloning:
-
-```cmd
-git submodule init
-git submodule update --recursive
-```
-
-
-2. Build the native TTS engine
-- NOTE: Feel free to change my absolute path to relative or don't use at all if you have a path variable. I just cant get my path variables working rn.
-
-- Open the TTS engine folder (the submodule) and follow its README — on Windows this usually means opening the supplied Visual Studio solution or running CMake to produce an x64 build.
-- Ensure you build the application configuration you want (Debug/Release) and note the produced executable path (for example: `.../ttsapplication/x64/Debug/TtsApplication.exe`).
-
-3. Configure the Python script to find the executable
-- Option A: set an environment variable (recommended)
+### 4. Run the Application
 
 ```cmd
-setx TTS_EXE "C:\full\path\to\TtsApplication.exe"
+python src/main.py
 ```
 
-- Option B: edit `kindleReader.py` and set `TTS_EXE` to the built executable path near the top of the file.
+## Usage
 
-Runtime notes
-- The Python code launches the native TTS process asynchronously so audio playback can be cancelled (Ctrl+C) while speaking. If you change the TTS engine, keep that behavior in mind.
-- If the TTS engine uses additional runtime DLLs (e.g. Visual C++ redistributable), make sure those are installed on the target machine.
+1. **Start Application**: Launch `src/main.py`
+2. **Select TTS Engine**: Choose from dropdown (Coqui TTS, XTTS, or Fast TTS)
+3. **Configure Voice**: 
+   - VCTK: Select speaker from dropdown (p254, p376, etc.)
+   - XTTS: Select reference audio file
+4. **Adjust Settings**:
+   - Speed: 0.5x to 2.0x
+   - Volume: 1-100%
+5. **Set Crop Region**: Click "Set Crop" to define text capture area
+6. **Start Reading**: Click "Start" and use Kindle normally
 
-Troubleshooting
-- If Python fails to start the TTS exe, verify the `TTS_EXE` path and that the binary is built for x64 (or the same bitness as your Python interpreter/process).
-- If audio playback hangs or doesn't stop on Ctrl+C, confirm the TTS exe responds to SIGTERM/kill or update the Python wrapper to use a different child termination strategy.
+### Keyboard Controls
 
+- **Start/Stop**: Click button or use GUI
+- **Page Navigation**: Use Kindle's native controls
+- **Audio stops automatically** when you stop reading
 
-//new 
-Using the VCTK is the easiest, due to it being a pretained model, and it can generate text faster than it is spoken. 
+## TTS Engine Comparison
 
-Xtts can have any 'voice' but is a work in progress because it only works well with deepspeed a mostly linux library (can be used with windows, but it requires specific steps to do so). but as of now Xtts takes longer to generate speech than it takes to ouput it, 290sec to gen and 270 to speek, as well as using 60+ percent of my 3090 so it isnt greatly useful rn
+| Engine | Speed | Quality | GPU Required | Voice Options | Best For |
+|--------|-------|---------|--------------|---------------|----------|
+| **Coqui VCTK** | Fast (real-time) | Good | Optional | ~100 pretrained voices | General reading |
+| **Coqui VITS** | Fast (real-time) | Good | Optional | ~100 pretrained voices | General reading |
+| **XTTS v2** | Slower (prefetch helps) | Excellent | Recommended | Custom voice cloning | Specific voice preference |
+| **gTTS** | Very fast | Basic | No | Google voices | Quick testing |
 
+## Advanced Features
 
-License
-GNU General Public License (GPL)
+### Smart Contraction Handling
+
+VITS models struggle with contractions. The app automatically:
+- Detects and expands contractions ("he'd" → "he would")
+- Handles possessives correctly ("mind's eye" → "minds eye")
+- Distinguishes "has" vs "is" ("he's finished" → "he has finished")
+- Supports curly apostrophes from Kindle
+
+### Audio Prefetching
+
+- Generates next page audio at ~70% of current playback
+- Page turns at ~72% to start OCR preprocessing
+- Near-instant transitions between pages
+- No overlapping audio
+
+### GPU Acceleration
+
+If you have an NVIDIA GPU with CUDA:
+```cmd
+# Install PyTorch with CUDA support
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+The app auto-detects CUDA and uses GPU acceleration for faster generation.
+
+## Configuration
+
+Key settings in `src/config.py`:
+
+```python
+# OCR
+TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+CROP_LEFT = 100    # Adjust to your screen
+CROP_TOP = 100
+CROP_RIGHT = 900
+CROP_BOTTOM = 700
+
+# TTS
+TTS_MODEL = "tts_models/en/vctk/vits"
+TTS_VOICE = "p254"  # Default voice
+```
+
+## Troubleshooting
+
+### "Kindle window not found"
+- Ensure Kindle app is open and visible (not minimized)
+- Window title should contain "Kindle"
+
+### Poor OCR Quality
+- Click "Set Crop" and adjust the region to capture only text
+- Avoid page numbers, headers, images
+- Ensure Kindle window is not too small
+
+### Slow TTS Generation
+- Use VCTK/VITS instead of XTTS for faster generation
+- Enable GPU acceleration if available
+- Close other GPU-intensive applications
+
+### Contractions Sound Wrong
+- Ensure you're using Coqui VITS (contraction expansion is automatic)
+- Check that the text displays correctly in the GUI
+
+### Page Turns Too Early/Late
+- Adjust timing in `src/orchestrator.py` (line ~115):
+  ```python
+  turn_delay = max(0.1, duration * 0.72)  # Adjust 0.72 (72%)
+  ```
+
+## Development
+
+### Project Structure
+```
+kindleReader/
+├── src/
+│   ├── main.py              # Entry point
+│   ├── gui.py               # Tkinter GUI
+│   ├── orchestrator.py      # Main reading loop & timing
+│   ├── config.py            # Configuration
+│   ├── controllers/         # Kindle window control
+│   ├── services/            # OCR, TTS, screen capture
+│   └── voices/              # Voice configurations
+├── models/                  # TTS models (auto-downloaded)
+├── speakers/                # Reference audio for XTTS
+└── requirements.txt
+```
+
+### Key Files
+- `orchestrator.py`: Controls page turn timing and audio sync
+- `services/tts_python.py`: Coqui TTS implementation with contraction handling
+- `services/ocr_service.py`: Tesseract OCR wrapper
+- `controllers/kindle_controller.py`: Kindle window automation
+
+## Known Issues
+
+- XTTS is slower than real-time without GPU acceleration
+- Window must remain visible (can be mostly off-screen)
+- First page may have slight delay while model loads
+
+## Requirements
+
+- Windows 10/11
+- Python 3.11+
+- 4GB+ RAM (8GB+ recommended for XTTS)
+- NVIDIA GPU with CUDA (optional, but recommended for XTTS)
+
+## License
+
+GNU General Public License v3.0 (GPL-3.0)
+
+## Credits
+
+- Coqui TTS for open-source TTS models
+- Tesseract OCR for text recognition
+- Original TTS engine integration (submodule)

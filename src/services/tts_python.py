@@ -77,10 +77,12 @@ class CoquiTTSService(TTSService):
                 print("CUDA not detected, using CPU (slower)")
                 print(f"  PyTorch CUDA available: {torch.cuda.is_available()}")
                 print(f"  PyTorch CUDA version: {torch.version.cuda}")
-
-        self._current_file = "temp_speech_current.wav"
-        self._next_file = "temp_speech_next.wav"
-        self._prefetch_file = "temp_speech_prefetch.wav"
+                
+        #TODO: make this a var user can control
+        os.makedirs("output/temp", exist_ok=True)
+        self._current_file = "output/temp/temp_speech_current.wav"
+        self._next_file = "output/temp/temp_speech_next.wav"
+        self._prefetch_file = "output/temp/temp_speech_prefetch.wav"
         self._prefetched_text: Optional[str] = None
         self._prefetch_ready: bool = False
         self._prefetch_task: Optional[asyncio.Task] = None
@@ -435,7 +437,7 @@ class CoquiTTSService(TTSService):
 
     async def cleanup(self) -> None:
         self._tts_engine = None
-        for f in (self._current_file, self._next_file):
+        for f in (self._current_file, self._next_file, self._prefetch_file):
             try:
                 os.remove(f)
             except FileNotFoundError:

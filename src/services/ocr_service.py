@@ -22,9 +22,9 @@ class OCRService:
         
         # Clean up text
         text = re.sub(r'\s+', ' ', text).strip()
-        text = text.replace("- ", "")
+        text = text.replace("- ", "") # meant to remove hyphens braking up words between lines, could break hyphens that are meant to be there
         text = text.replace(""", '"').replace(""", '"')
         text = text.replace("'", "'").replace("'", "'")
-        # so far TTS is having problems with contractions like can't/won't, It's and so on, might have to uncontractionize them here
+        # so far VITS TTS is having problems with contractions like can't/won't, It's and so on, might have to uncontractionize them here
         
         return text if text else None

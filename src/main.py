@@ -4,7 +4,7 @@ from orchestrator import KindleReaderOrchestrator
 from services.tts_python import CoquiTTSService  # or tts_tcp.TCPTTSService
 from services.screen_capture import ScreenCaptureService
 from services.ocr_service import OCRService
-from controllers.kindle_controller import KindleController
+from controllers.WindowController import WindowController
 import config
 from utils import resource_path
 
@@ -19,13 +19,22 @@ async def main():
         espeak_path=getattr(config, 'COQUI_ESPEAK_PATH', None),
     )
     
-    kindle = KindleController()
+    window_controller = WindowController()
+    # Try to find Kindle for PC by default, or user can modify this to any window title
+    if not window_controller.find_window("Kindle for PC"):
+        print("Warning: Kindle for PC window not found. Looking for any window...")
+        windows = window_controller.get_all_windows()
+        if windows:
+            print(f"Available windows: {windows[:5]}")  # Show first 5 windows
+            print("Please modify main.py to specify the correct window title")
+        return
+    
     screen_capture = ScreenCaptureService()
     ocr = OCRService(tesseract_path=resource_path(config.TESSERACT_PATH))
     
     orchestrator = KindleReaderOrchestrator(
         tts_service=tts,
-        kindle_controller=kindle,
+        kindle_controller=window_controller,
         screen_capture=screen_capture,
         ocr_service=ocr,
         # crop_settings defaults to utils.get_crop_settings()
