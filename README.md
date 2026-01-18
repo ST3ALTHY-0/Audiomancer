@@ -15,6 +15,16 @@ A Windows utility that uses OCR to extract text from any window and reads it alo
 - **Background Operation**: Works with any window in background (window must be visible, not minimized)
 - **GPU Acceleration**: CUDA support for faster TTS generation on compatible GPUs
 
+## TODO
+- add more tts engines (supertonic seems cool)
+- allow user to choose crop area with nice tool (save in userSetting config)
+- allow user to customize what buttons are pressed and when (save in userSetting config)
+- make the gTTS page turning/timing better (kinda with next point)
+- allow the user to change prefetch timing (implemented client side, needs implemented server side)
+- figure out deepspeed for xtts_api_server on linux so we can run our own server that might be able to do custom voices in real time
+- make gui better looking, very messy and basic rn
+
+
 ## Quick Start
 
 ### 1. Install Prerequisites
