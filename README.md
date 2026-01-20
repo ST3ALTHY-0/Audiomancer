@@ -23,6 +23,7 @@ A Windows utility that uses OCR to extract text from any window and reads it alo
 - allow the user to change prefetch timing (implemented client side, needs implemented server side)
 - figure out deepspeed for xtts_api_server on linux so we can run our own server that might be able to do custom voices in real time
 - make gui better looking, very messy and basic rn
+- maybe split text into sentences before sending it to TTS
 
 
 ## Quick Start

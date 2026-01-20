@@ -11,6 +11,7 @@ if sys.platform == "win32":
 
 import tkinter as tk
 from tkinter import ttk
+import ttkbootstrap as tb
 import threading
 import asyncio
 import os
@@ -23,6 +24,7 @@ from services.screen_capture import ScreenCaptureService
 from services.ocr_service import OCRService
 from controllers.WindowController import WindowController
 from services.saveUserConfig import ConfigManager, create_config_from_gui, apply_config_to_gui
+from services.crop_selector import select_crop_area
 import config
 from services.tts_xtts_client import stream_tts, play_stream
 
@@ -30,7 +32,7 @@ class KindleTTSApp:
     def __init__(self, root):
         self.root = root
         self.root.title("TTS Reader")
-        self.root.geometry("1000x800")
+        self.root.geometry("1000x750")
         self.root.minsize(800, 450)
 
         # DPI scaling
@@ -50,13 +52,28 @@ class KindleTTSApp:
         
         # Configuration manager
         self.config_manager = ConfigManager()
+        
+        # Crop settings (defaults from config.py)
+        self.crop_left = getattr(config, 'CROP_LEFT', 75)
+        self.crop_top = getattr(config, 'CROP_TOP', 110)
+        self.crop_right = getattr(config, 'CROP_RIGHT', 20)
+        self.crop_bottom = getattr(config, 'CROP_BOTTOM', 50)
 
         # -------------------- UI --------------------
-        self.left = ttk.Frame(root, padding=10)
+        # Main container with left (controls) and right (OCR output)
+        main_container = ttk.Frame(root)
+        main_container.pack(fill=tk.BOTH, expand=True)
+        
+        # Left panel with tabbed navigation
+        self.left = ttk.Frame(main_container, padding=10)
         self.left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Create notebook for tabbed navigation
+        self.notebook = ttk.Notebook(self.left, bootstyle="info")
+        self.notebook.pack(fill=tk.BOTH, expand=True)
 
         # Right pane for page preview/status
-        self.right = ttk.Frame(root, padding=(0, 10, 10, 10))
+        self.right = ttk.Frame(main_container, padding=(0, 10, 10, 10))
         self.right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
         # Load voices
@@ -79,7 +96,12 @@ class KindleTTSApp:
         self.rate_var = tk.StringVar(value=str(getattr(config, "TTS_RATE", 1.0)))
         self.volume_var = tk.StringVar(value=str(getattr(config, "TTS_VOLUME", 100)))
         self.sample_var = tk.StringVar(value=self.voice_to_sample.get(self.voice_var.get(), ""))
-        self.page_delay_var = tk.StringVar(value="0.30")
+        self.page_delay_var = tk.StringVar(value="0.72")  # Default 72% turn timing
+        # Persist page delay changes to auto-load profile if configured
+        try:
+            self.page_delay_var.trace_add("write", self._on_page_delay_changed)
+        except Exception:
+            pass
         
         # Detect GPU availability
         try:
@@ -95,57 +117,59 @@ class KindleTTSApp:
 
         # Engine selection
         self.tts_engine_var = tk.StringVar(value="Coqui TTS")
-        ttk.Label(self.left, text="Engine:").pack(anchor=tk.W)
-        self.engine_combo = ttk.Combobox(
-            self.left, textvariable=self.tts_engine_var,
-            values=["Coqui TTS", "XTTS V2 Streaming", "Fast TTS (gTTS)"], state="readonly", width=35
-        )
-        self.engine_combo.pack(anchor=tk.W, pady=(0, 8))
-        self.engine_combo.bind("<<ComboboxSelected>>", self._on_engine_changed)
         
         # gTTS language options and XTTS-only model list
         self.gtts_languages = ["en", "es", "fr", "de"]
         self.xtts_models = sorted([m for m in self.models if m.endswith("xtts_v2")]) or ["tts_models/multilingual/multi-dataset/xtts_v2"]
 
-        # Model selection
-        ttk.Label(self.left, text="Model:").pack(anchor=tk.W)
+        # ===== TAB 1: TTS Settings =====
+        tts_tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tts_tab, text="🎤 TTS Settings")
+        
+        # Engine & Voice Section
+        engine_frame = ttk.Labelframe(tts_tab, text="Engine & Voice", bootstyle="info", padding=12)
+        engine_frame.pack(fill=tk.X, pady=(0, 12))
+        
+        ttk.Label(engine_frame, text="Engine", bootstyle="secondary").grid(row=0, column=0, sticky="w")
+        self.engine_combo = ttk.Combobox(
+            engine_frame, textvariable=self.tts_engine_var,
+            values=["Coqui TTS", "XTTS V2 Streaming", "Fast TTS (gTTS)"], state="readonly", width=35
+        )
+        self.engine_combo.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(2, 8))
+        self.engine_combo.bind("<<ComboboxSelected>>", self._on_engine_changed)
+        
+        ttk.Label(engine_frame, text="Model", bootstyle="secondary").grid(row=2, column=0, sticky="w")
         self.model_combo = ttk.Combobox(
-            self.left,
+            engine_frame,
             textvariable=self.model_var,
             values=self.models,
             state="readonly",
             width=50,
         )
-        self.model_combo.pack(anchor=tk.W)
+        self.model_combo.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(2, 8))
         self.model_combo.bind("<<ComboboxSelected>>", self._on_model_changed)
-
-        # Voice selection (Coqui voices / reference speaker label)
-        self.voice_label = ttk.Label(self.left, text="Voice / Speaker:")
-        self.voice_label.pack(anchor=tk.W)
-
+        
+        self.voice_label = ttk.Label(engine_frame, text="Voice / Speaker", bootstyle="secondary")
+        self.voice_label.grid(row=4, column=0, sticky="w")
         self.voice_combo = ttk.Combobox(
-            self.left,
+            engine_frame,
             textvariable=self.voice_var,
             values=self.model_to_voices[self.model_var.get()],
             state="readonly",
             width=40,
         )
-        self.voice_combo.pack(anchor=tk.W)
+        self.voice_combo.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(2, 8))
         self.voice_combo.bind("<<ComboboxSelected>>", self._on_voice_changed)
-
-        # Sample file row + Play Sample
-        self.sample_row = ttk.Frame(self.left)
-        self.sample_row.pack(anchor=tk.W, fill=tk.X, pady=(6, 0))
-        ttk.Label(self.sample_row, text="Sample:").pack(side=tk.LEFT)
-        self.sample_entry = ttk.Entry(self.sample_row, textvariable=self.sample_var, width=45)
-        self.sample_entry.pack(side=tk.LEFT, padx=(6, 6))
-        self.play_btn = ttk.Button(self.sample_row, text="Play Sample", command=self._play_sample)
-        self.play_btn.pack(side=tk.LEFT)
-
-        # GPU/Device selection (Coqui TTS only)
-        ttk.Label(self.left, text=f"Compute Device: {self.cuda_status}").pack(anchor=tk.W, pady=(10, 6))
-        device_row = ttk.Frame(self.left)
-        device_row.pack(anchor=tk.W, fill=tk.X)
+        
+        ttk.Label(engine_frame, text="Sample", bootstyle="secondary").grid(row=6, column=0, sticky="w")
+        self.sample_entry = ttk.Entry(engine_frame, textvariable=self.sample_var, width=45)
+        self.sample_entry.grid(row=7, column=0, sticky="ew", pady=(2, 6))
+        self.play_btn = ttk.Button(engine_frame, text="Play", command=self._play_sample, bootstyle="info-outline")
+        self.play_btn.grid(row=7, column=1, padx=(6, 0))
+        
+        ttk.Label(engine_frame, text=f"Device: {self.cuda_status}").grid(row=8, column=0, columnspan=2, sticky="w", pady=(8, 2))
+        device_row = ttk.Frame(engine_frame)
+        device_row.grid(row=9, column=0, columnspan=2, sticky="w")
         self.device_combo = ttk.Combobox(
             device_row,
             textvariable=self.device_var,
@@ -154,54 +178,86 @@ class KindleTTSApp:
             width=12
         )
         self.device_combo.pack(side=tk.LEFT)
-        device_note = tk.Label(device_row, text="(restart app to apply)", font=("TkDefaultFont", 8, "italic"))
-        device_note.pack(side=tk.LEFT, padx=(6, 0))
-
-        # Rate & Volume
-        controls = ttk.Frame(self.left)
-        controls.pack(anchor=tk.W, fill=tk.X, pady=(10, 0))
-
-        ttk.Label(controls, text="Rate (0.5-2.0):").grid(row=0, column=0, sticky=tk.W)
-        self.rate_entry = ttk.Entry(controls, textvariable=self.rate_var, width=10)
-        self.rate_entry.grid(row=0, column=1, sticky=tk.W, padx=(6, 20))
-
-        ttk.Label(controls, text="Volume (1-100):").grid(row=0, column=2, sticky=tk.W)
-        self.volume_entry = ttk.Entry(controls, textvariable=self.volume_var, width=10)
-        self.volume_entry.grid(row=0, column=3, sticky=tk.W, padx=(6, 0))
-
-        # Page delay (used to smooth page turns for some engines)
-        ttk.Label(controls, text="Page Delay (s):").grid(row=1, column=0, sticky=tk.W, pady=(6, 0))
-        self.page_delay_entry = ttk.Entry(controls, textvariable=self.page_delay_var, width=10)
-        self.page_delay_entry.grid(row=1, column=1, sticky=tk.W, padx=(6, 0), pady=(6, 0))
-
-        # Window selection
-        window_frame = ttk.Frame(self.left)
-        window_frame.pack(anchor=tk.W, fill=tk.X, pady=(14, 0))
-        ttk.Label(window_frame, text="Target Window:").pack(anchor=tk.W)
+        ttk.Label(device_row, text="(restart app to apply)").pack(side=tk.LEFT, padx=(6, 0))
         
-        window_select_row = ttk.Frame(window_frame)
-        window_select_row.pack(anchor=tk.W, fill=tk.X, pady=(4, 0))
+        engine_frame.columnconfigure(0, weight=1)
         
+        # Store sample_row reference for compatibility
+        self.sample_row = engine_frame
+
+        # Audio Settings Section
+        audio_frame = ttk.Labelframe(tts_tab, text="Audio Settings", bootstyle="info", padding=12)
+        audio_frame.pack(fill=tk.X, pady=(0, 12))
+        
+        ttk.Label(audio_frame, text="Rate").grid(row=0, column=0, sticky="w")
+        self.rate_entry = ttk.Entry(audio_frame, textvariable=self.rate_var, width=10)
+        self.rate_entry.grid(row=0, column=1, sticky="w", padx=(6, 16))
+        
+        ttk.Label(audio_frame, text="Volume").grid(row=0, column=2, sticky="w")
+        self.volume_entry = ttk.Entry(audio_frame, textvariable=self.volume_var, width=10)
+        self.volume_entry.grid(row=0, column=3, sticky="w", padx=(6, 0))
+        
+        ttk.Label(audio_frame, text="Turn Timing", bootstyle="secondary").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        self.page_delay_entry = ttk.Entry(audio_frame, textvariable=self.page_delay_var, width=10)
+        self.page_delay_entry.grid(row=1, column=1, sticky="w", padx=(6, 0), pady=(8, 0))
+        ttk.Label(audio_frame, text="0.72 = page turn at 72%").grid(row=1, column=2, columnspan=2, sticky="w", pady=(8, 0))
+
+        # ===== TAB 2: Window & OCR =====
+        window_tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(window_tab, text="🪟 Window & OCR")
+        
+        # Window & Capture Section
+        window_frame = ttk.Labelframe(window_tab, text="Window & Capture", bootstyle="info", padding=12)
+        window_frame.pack(fill=tk.X, pady=(0, 12))
+        
+        ttk.Label(window_frame, text="Target Window", bootstyle="secondary").pack(anchor="w")
         self.selected_window_var = tk.StringVar(value="")
         self.window_combo = ttk.Combobox(
-            window_select_row,
+            window_frame,
             textvariable=self.selected_window_var,
             values=[],
             state="readonly",
             width=50
         )
-        self.window_combo.pack(side=tk.LEFT, padx=(0, 6))
-        
+        self.window_combo.pack(fill=tk.X, pady=(2, 6))
         self.refresh_windows_btn = ttk.Button(
-            window_select_row,
+            window_frame,
             text="Refresh Windows",
-            command=self._refresh_windows
+            command=self._refresh_windows,
+            bootstyle="secondary-outline"
         )
-        self.refresh_windows_btn.pack(side=tk.LEFT)
+        self.refresh_windows_btn.pack(anchor="w")
+        
+        crop_row = ttk.Frame(window_frame)
+        crop_row.pack(fill=tk.X, pady=(8, 4))
+        
+        self.select_crop_btn = ttk.Button(
+            crop_row,
+            text="Select Crop Area",
+            command=self._select_crop_area,
+            bootstyle="primary-outline"
+        )
+        self.select_crop_btn.pack(side=tk.LEFT)
+        
+        self.view_crop_btn = ttk.Button(
+            crop_row,
+            text="View Preview",
+            command=self._view_crop_preview,
+            bootstyle="info-outline"
+        )
+        self.view_crop_btn.pack(side=tk.LEFT, padx=(6, 0))
+        
+        self.crop_status_var = tk.StringVar(value=f"Crop: L={self.crop_left} T={self.crop_top} R={self.crop_right} B={self.crop_bottom}")
+        self.crop_status_label = ttk.Label(window_frame, textvariable=self.crop_status_var)
+        self.crop_status_label.pack(anchor="w", pady=(4, 0))
 
-        # Configuration Management Section
-        config_frame = ttk.LabelFrame(self.left, text="Configuration Profiles", padding=10)
-        config_frame.pack(anchor=tk.W, fill=tk.X, pady=(14, 0))
+        # ===== TAB 3: Profiles =====
+        profiles_tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(profiles_tab, text="💾 Profiles")
+        
+        # Configuration Profiles Section
+        config_frame = ttk.Labelframe(profiles_tab, text="Configuration Profiles", bootstyle="info", padding=12)
+        config_frame.pack(fill=tk.X, pady=(0, 12))
         
         # Row 1: Save config
         save_row = ttk.Frame(config_frame)
@@ -210,7 +266,7 @@ class KindleTTSApp:
         self.config_name_var = tk.StringVar()
         self.config_name_entry = ttk.Entry(save_row, textvariable=self.config_name_var, width=20)
         self.config_name_entry.pack(side=tk.LEFT, padx=(6, 6))
-        self.save_config_btn = ttk.Button(save_row, text="Save Profile", command=self._save_config)
+        self.save_config_btn = ttk.Button(save_row, text="Save Profile", command=self._save_config, bootstyle="primary")
         self.save_config_btn.pack(side=tk.LEFT)
         
         # Row 2: Load config
@@ -226,35 +282,38 @@ class KindleTTSApp:
             width=18
         )
         self.load_config_combo.pack(side=tk.LEFT, padx=(6, 6))
-        self.load_config_btn = ttk.Button(load_row, text="Load", command=self._load_config)
+        self.load_config_btn = ttk.Button(load_row, text="Load", command=self._load_config, bootstyle="success-outline")
         self.load_config_btn.pack(side=tk.LEFT, padx=(0, 4))
-        self.delete_config_btn = ttk.Button(load_row, text="Delete", command=self._delete_config)
+        self.delete_config_btn = ttk.Button(load_row, text="Delete", command=self._delete_config, bootstyle="danger-outline")
         self.delete_config_btn.pack(side=tk.LEFT)
         
         # Row 3: Auto-load
         auto_row = ttk.Frame(config_frame)
         auto_row.pack(anchor=tk.W, fill=tk.X, pady=(8, 0))
-        self.auto_load_btn = ttk.Button(auto_row, text="Set as Auto-Load", command=self._set_auto_load)
+        self.auto_load_btn = ttk.Button(auto_row, text="Set as Auto-Load", command=self._set_auto_load, bootstyle="secondary-outline")
         self.auto_load_btn.pack(side=tk.LEFT)
-        self.clear_auto_load_btn = ttk.Button(auto_row, text="Clear Auto-Load", command=self._clear_auto_load)
+        self.clear_auto_load_btn = ttk.Button(auto_row, text="Clear Auto-Load", command=self._clear_auto_load, bootstyle="warning-outline")
         self.clear_auto_load_btn.pack(side=tk.LEFT, padx=(4, 0))
         
         # Auto-load status label
         self.auto_load_status_var = tk.StringVar()
-        ttk.Label(config_frame, textvariable=self.auto_load_status_var, font=("TkDefaultFont", 8, "italic")).pack(anchor=tk.W, pady=(4, 0))
+        ttk.Label(config_frame, textvariable=self.auto_load_status_var).pack(anchor=tk.W, pady=(4, 0))
 
-        # Start/Stop buttons
-        buttons = ttk.Frame(self.left)
-        buttons.pack(anchor=tk.W, fill=tk.X, pady=(14, 0))
-        self.start_btn = ttk.Button(buttons, text="Start", command=self.start)
+        # ===== Control Bar (below tabs, always visible) =====
+        control_bar = ttk.Frame(self.left, bootstyle="dark", padding=10)
+        control_bar.pack(fill=tk.X, pady=(8, 0))
+        
+        action_frame = ttk.Frame(control_bar)
+        action_frame.pack()
+        self.start_btn = ttk.Button(action_frame, text="Start", command=self.start, bootstyle="success")
         self.start_btn.pack(side=tk.LEFT)
-        self.stop_btn = ttk.Button(buttons, text="Stop", command=self.stop, state=tk.DISABLED)
+        self.stop_btn = ttk.Button(action_frame, text="Stop", command=self.stop, state=tk.DISABLED, bootstyle="danger")
         self.stop_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         # Page preview on the right
-        ttk.Label(self.right, text="Current Page (OCR)").pack(anchor=tk.W)
-        self.page_text = tk.Text(self.right, height=20, wrap=tk.WORD)
-        self.page_text.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(self.right, text="Live OCR Output", bootstyle="secondary").pack(anchor=tk.W)
+        self.page_text = tk.Text(self.right, height=20, wrap=tk.WORD, relief="solid", borderwidth=1, font=("Segoe UI", 10))
+        self.page_text.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
         self.status_var = tk.StringVar(value="Idle")
         ttk.Label(self.right, textvariable=self.status_var).pack(anchor=tk.W, pady=(6, 0))
 
@@ -288,6 +347,112 @@ class KindleTTSApp:
             self.status_var.set(f"Found {len(windows)} windows")
         except Exception as e:
             self.status_var.set(f"Error refreshing windows: {e}")
+    
+    def _select_crop_area(self):
+        """Open crop area selection dialog"""
+        # Validate window selection
+        if not self.selected_window_var.get():
+            self.status_var.set("Please select a target window first")
+            return
+        
+        try:
+            # Get window controller and capture screenshot
+            controller = WindowController()
+            if not controller.find_window(self.selected_window_var.get()):
+                self.status_var.set(f"Window not found: {self.selected_window_var.get()}")
+                return
+            
+            # Capture full window screenshot
+            screen_capture = ScreenCaptureService()
+            screenshot = screen_capture.capture_window(controller.hwnd, crop=None)
+            
+            if not screenshot:
+                self.status_var.set("Failed to capture window screenshot")
+                return
+            
+            # Show crop selection dialog
+            result = select_crop_area(self.root, screenshot)
+            
+            if result:
+                self.crop_left, self.crop_top, self.crop_right, self.crop_bottom = result
+                self._update_crop_status()
+                
+                # Save preview image showing the cropped area
+                self._save_crop_preview(screenshot, result)
+                
+                self.status_var.set("Crop area updated successfully")
+            else:
+                self.status_var.set("Crop selection cancelled")
+                
+        except Exception as e:
+            self.status_var.set(f"Error selecting crop area: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _update_crop_status(self):
+        """Update the crop status label"""
+        self.crop_status_var.set(
+            f"Crop: L={self.crop_left} T={self.crop_top} R={self.crop_right} B={self.crop_bottom}"
+        )
+    
+    def _save_crop_preview(self, screenshot, crop_coords):
+        """Save a preview image showing the selected crop area"""
+        try:
+            from PIL import ImageDraw
+            import os
+            
+            # Create a copy for drawing
+            preview = screenshot.copy()
+            draw = ImageDraw.Draw(preview)
+            
+            # Calculate crop rectangle
+            left, top, right, bottom = crop_coords
+            width, height = screenshot.size
+            
+            # Draw the crop area (what will be captured)
+            crop_rect = [left, top, width - right, height - bottom]
+            draw.rectangle(crop_rect, outline='green', width=3)
+            
+            # Draw the excluded areas with semi-transparent overlay
+            # We'll draw red rectangles showing what's excluded
+            # Top excluded area
+            if top > 0:
+                draw.rectangle([0, 0, width, top], outline='red', width=2)
+            # Left excluded area
+            if left > 0:
+                draw.rectangle([0, 0, left, height], outline='red', width=2)
+            # Right excluded area
+            if right > 0:
+                draw.rectangle([width - right, 0, width, height], outline='red', width=2)
+            # Bottom excluded area
+            if bottom > 0:
+                draw.rectangle([0, height - bottom, width, height], outline='red', width=2)
+            
+            # Save the preview
+            os.makedirs("output/crop_previews", exist_ok=True)
+            preview_path = "output/crop_previews/last_crop_preview.png"
+            preview.save(preview_path)
+            print(f"Crop preview saved to {preview_path}")
+            
+        except Exception as e:
+            print(f"Failed to save crop preview: {e}")
+    
+    def _view_crop_preview(self):
+        """Open the last saved crop preview image"""
+        import os
+        import subprocess
+        
+        preview_path = "output/crop_previews/last_crop_preview.png"
+        if os.path.exists(preview_path):
+            try:
+                os.startfile(preview_path)  # Windows
+            except Exception:
+                try:
+                    subprocess.run(['xdg-open', preview_path])  # Linux
+                except Exception as e:
+                    self.status_var.set(f"Failed to open preview: {e}")
+        else:
+            self.status_var.set("No crop preview available. Select a crop area first.")
     
     # -------------------- CONFIG MANAGEMENT --------------------
     def _refresh_config_list(self):
@@ -382,6 +547,23 @@ class KindleTTSApp:
             apply_config_to_gui(self, config_data)
             auto_load_name = self.config_manager.get_auto_load()
             self.status_var.set(f"Auto-loaded profile: {auto_load_name}")
+
+    def _on_page_delay_changed(self, *args):
+        """Auto-save page delay to the current auto-load profile if set."""
+        try:
+            auto_name = self.config_manager.get_auto_load()
+            if not auto_name:
+                return
+            data = self.config_manager.load_config(auto_name)
+            if not data:
+                return
+            data["page_delay"] = self.page_delay_var.get()
+            # Preserve metadata fields if present
+            self.config_manager.save_config(auto_name, data)
+            # Optional: update status subtly without spamming
+            self.status_var.set(f"Saved page delay to '{auto_name}'")
+        except Exception:
+            pass
     
     # -------------------- ORCHESTRATOR --------------------
     
@@ -521,11 +703,19 @@ class KindleTTSApp:
             # reference_audio is used as model ID for XTTS
             model_id = self.voice_to_reference_audio.get(self.voice_var.get())
 
+            # Parse page delay (seconds) from UI
+            try:
+                page_delay = float(self.page_delay_var.get())
+            except Exception:
+                page_delay = 0.30
+
             self.orchestrator = KindleReaderOrchestrator(
                 tts_service=None,  # XTTS does not use TTSService
                 kindle_controller=window_controller,
                 screen_capture=screen,
-                ocr_service=ocr
+                ocr_service=ocr,
+                crop_settings=(self.crop_left, self.crop_top, self.crop_right, self.crop_bottom),
+                page_delay_seconds=page_delay,
             )
 
             self.loop.run_until_complete(
@@ -575,11 +765,19 @@ class KindleTTSApp:
             screen = ScreenCaptureService()
             ocr = OCRService(config.TESSERACT_PATH)
 
+            # Parse page delay (seconds) from UI
+            try:
+                page_delay = float(self.page_delay_var.get())
+            except Exception:
+                page_delay = 0.30
+
             self.orchestrator = KindleReaderOrchestrator(
                 tts_service=tts,
                 kindle_controller=window_controller,
                 screen_capture=screen,
                 ocr_service=ocr,
+                crop_settings=(self.crop_left, self.crop_top, self.crop_right, self.crop_bottom),
+                page_delay_seconds=page_delay,
             )
 
             # Determine reference audio only for XTTS model in Coqui
@@ -633,11 +831,19 @@ class KindleTTSApp:
             screen = ScreenCaptureService()
             ocr = OCRService(config.TESSERACT_PATH)
 
+            # Parse page delay (seconds) from UI
+            try:
+                page_delay = float(self.page_delay_var.get())
+            except Exception:
+                page_delay = 0.30
+
             self.orchestrator = KindleReaderOrchestrator(
                 tts_service=tts,
                 kindle_controller=window_controller,
                 screen_capture=screen,
                 ocr_service=ocr,
+                crop_settings=(self.crop_left, self.crop_top, self.crop_right, self.crop_bottom),
+                page_delay_seconds=page_delay,
             )
 
             self.loop.run_until_complete(
@@ -670,6 +876,8 @@ class KindleTTSApp:
             pass
 
 if __name__ == "__main__":
-    root = tk.Tk()
+    root = tb.Window(
+        themename="darkly",  # Modern dark theme - can also use: flatly, superhero, cyborg, litera
+    )
     app = KindleTTSApp(root)
     root.mainloop()

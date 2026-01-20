@@ -18,13 +18,20 @@ class KindleReaderOrchestrator:
         kindle_controller: WindowController,
         screen_capture: ScreenCaptureService,
         ocr_service: OCRService,
-        crop_settings: Optional[Tuple[int, int, int, int]] = None
+        crop_settings: Optional[Tuple[int, int, int, int]] = None,
+        page_delay_seconds: Optional[float] = None,
     ):
         self.tts = tts_service
         self.kindle = kindle_controller
         self.screen_capture = screen_capture
         self.ocr = ocr_service
         self.crop_settings = crop_settings or self._load_crop_settings_from_config()
+        # User-controlled turn timing: fraction of audio duration to wait before turning page
+        # E.g., 0.72 = turn at 72% of audio playback (allows overlap)
+        try:
+            self.page_turn_timing = max(0.0, min(1.0, float(page_delay_seconds))) if page_delay_seconds is not None else 0.72
+        except Exception:
+            self.page_turn_timing = 0.72  # Default to 72%
 
     def _load_crop_settings_from_config(self) -> Tuple[int, int, int, int]:
         return (
@@ -125,12 +132,13 @@ class KindleReaderOrchestrator:
                         current_text, next_text, reference_audio, on_time_update
                     )
 
-                # Turn page near end of playback (70-80% through) TODO allow user to set this (different ideal turning for different engines/models/computer hardware)
-                turn_delay = max(0.1, duration * 0.72) if duration else 0.3
+                # Turn page at user-specified fraction of audio duration
+                # This allows the page turn to happen during playback for smoother transitions
+                turn_delay = max(0.1, duration * self.page_turn_timing) if duration else 0.3
                 await asyncio.sleep(turn_delay)
 
                 self.kindle.turn_page()
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.2)  # Brief delay for page to render
 
                 # Read next page
                 next_text = await self.read_current_page()
@@ -178,7 +186,7 @@ class KindleReaderOrchestrator:
         while not stop_event.is_set():
             try:
                 self.kindle.turn_page()
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.2)  # Brief delay for page to render
                 next_text = await self.read_current_page()
 
                 if self.tts:

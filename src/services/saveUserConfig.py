@@ -203,6 +203,10 @@ def create_config_from_gui(gui_instance) -> Dict:
         "page_delay": gui_instance.page_delay_var.get(),
         "device": gui_instance.device_var.get(),
         "window": gui_instance.selected_window_var.get(),
+        "crop_left": getattr(gui_instance, 'crop_left', 75),
+        "crop_top": getattr(gui_instance, 'crop_top', 110),
+        "crop_right": getattr(gui_instance, 'crop_right', 20),
+        "crop_bottom": getattr(gui_instance, 'crop_bottom', 50),
     }
     return config
 
@@ -248,3 +252,17 @@ def apply_config_to_gui(gui_instance, config: Dict):
     
     if "window" in config:
         gui_instance.selected_window_var.set(config["window"])
+    
+    # Apply crop coordinates
+    if "crop_left" in config:
+        gui_instance.crop_left = config["crop_left"]
+    if "crop_top" in config:
+        gui_instance.crop_top = config["crop_top"]
+    if "crop_right" in config:
+        gui_instance.crop_right = config["crop_right"]
+    if "crop_bottom" in config:
+        gui_instance.crop_bottom = config["crop_bottom"]
+    
+    # Update crop status display if method exists
+    if hasattr(gui_instance, '_update_crop_status'):
+        gui_instance._update_crop_status()

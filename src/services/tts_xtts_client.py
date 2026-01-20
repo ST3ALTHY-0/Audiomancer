@@ -6,6 +6,9 @@ import requests
 from typing import Iterator
 import subprocess
 
+# Not used Rn, my plan was to use this to conenct to a xtts api server running on a linux vm/docker
+#So we could use deepspeed to see if we could get realtime tts/streaming, but im having problems with packages
+
 def stream_tts(text: str, chunk_size: int = 20) -> Iterator[bytes]:
     """
     Stream XTTS V2 audio bytes from local server on port 8020.
