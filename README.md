@@ -17,12 +17,9 @@ A Windows utility that uses OCR to extract text from any window and reads it alo
 
 ## TODO
 - add more tts engines (supertonic seems cool)
-- allow user to choose crop area with nice tool (save in userSetting config)
 - allow user to customize what buttons are pressed and when (save in userSetting config)
 - make the gTTS page turning/timing better (kinda with next point)
-- allow the user to change prefetch timing (implemented client side, needs implemented server side)
 - figure out deepspeed for xtts_api_server on linux so we can run our own server that might be able to do custom voices in real time
-- make gui better looking, very messy and basic rn
 - maybe split text into sentences before sending it to TTS
 
 
@@ -112,33 +109,6 @@ The app auto-detects CUDA and uses GPU acceleration for faster generation.
 
 Tested with 2.5 but other version likely work
 
-## Configuration
-
-Key settings in `src/config.py`:
-
-```python
-# OCR
-TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-CROP_LEFT = 100    # Adjust to your screen
-CROP_TOP = 100
-CROP_RIGHT = 900
-CROP_BOTTOM = 700
-
-# TTS
-TTS_MODEL = "tts_models/en/vctk/vits"
-TTS_VOICE = "p254"  # Default voice
-```
-
-## Troubleshooting
-
-### "Window not found"
-- Ensure your target window is open and visible (not minimized)
-- The app will display available windows in the dropdown
-
-### Poor OCR Quality
-- Click "Set Crop" and adjust the region to capture only text
-- Avoid page numbers, headers, images
-- Ensure window is at a reasonable size
 
 ### Slow TTS Generation
 - Use VCTK/VITS instead of XTTS for faster generation
@@ -150,22 +120,6 @@ TTS_VOICE = "p254"  # Default voice
 - Check that the text displays correctly in the GUI
 
 ## Development
-
-### Project Structure
-```
-Audiomancer/
-├── src/
-│   ├── main.py              # Entry point
-│   ├── gui.py               # Tkinter GUI
-│   ├── orchestrator.py      # Main reading loop & timing
-│   ├── config.py            # Configuration
-│   ├── controllers/         # Window control
-│   ├── services/            # OCR, TTS, screen capture
-│   └── voices/              # Voice configurations
-├── models/                  # TTS models (auto-downloaded)
-├── speakers/                # Reference audio for XTTS
-└── requirements.txt
-```
 
 ### Key Files
 - `orchestrator.py`: Controls content navigation timing and audio sync
