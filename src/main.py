@@ -2,6 +2,7 @@ import asyncio
 
 from orchestrator import KindleReaderOrchestrator
 from services.tts_python import CoquiTTSService  # or tts_tcp.TCPTTSService
+from services.tts_alltalk import AllTalkTTSService
 from services.screen_capture import ScreenCaptureService
 from services.ocr_service import OCRService
 from controllers.WindowController import WindowController
@@ -10,7 +11,9 @@ from utils import resource_path
 
 async def main():
     # Initialize services with dependency injection
-    # Use Coqui TTS by default
+    
+    # Choose TTS service:
+    # Option 1: Use Coqui TTS (local, CPU/GPU intensive)
     tts = CoquiTTSService(
         model=getattr(config, 'COQUI_MODEL', 'tts_models/en/vctk/vits'),
         voice=getattr(config, 'COQUI_VOICE', None),
@@ -18,6 +21,16 @@ async def main():
         volume=int(getattr(config, 'TTS_VOLUME', 100)),
         espeak_path=getattr(config, 'COQUI_ESPEAK_PATH', None),
     )
+    
+    # Option 2: Use AllTalk TTS (requires allTalk server running on port 7851)
+    # Uncomment to use AllTalk instead:
+    # tts = AllTalkTTSService(
+    #     voice=getattr(config, 'ALLTALK_VOICE', 'female_06.wav'),
+    #     language=getattr(config, 'ALLTALK_LANGUAGE', 'en'),
+    #     volume=int(getattr(config, 'TTS_VOLUME', 100)),
+    #     rate=float(getattr(config, 'TTS_RATE', 1.0)),
+    #     server_url=getattr(config, 'ALLTALK_SERVER', 'http://127.0.0.1:7851'),
+    # )
     
     window_controller = WindowController()
     # Try to find Kindle for PC by default, or user can modify this to any window title

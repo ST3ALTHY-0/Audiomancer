@@ -21,12 +21,13 @@ from orchestrator import KindleReaderOrchestrator
 from services.tts_python import CoquiTTSService
 from services.tts_realtime import RealTimeTTSService
 from services.screen_capture import ScreenCaptureService
+from services.tts_alltalk import AllTalkTTSService
 from services.ocr_service import OCRService
 from controllers.WindowController import WindowController
 from services.saveUserConfig import ConfigManager, create_config_from_gui, apply_config_to_gui
 from services.crop_selector import select_crop_area
 import config
-from services.tts_xtts_client import stream_tts, play_stream
+from services.allTalk_client import stream_tts, play_stream
 
 class KindleTTSApp:
     def __init__(self, root):
@@ -121,6 +122,10 @@ class KindleTTSApp:
         # gTTS language options and XTTS-only model list
         self.gtts_languages = ["en", "es", "fr", "de"]
         self.xtts_models = sorted([m for m in self.models if m.endswith("xtts_v2")]) or ["tts_models/multilingual/multi-dataset/xtts_v2"]
+        
+        # AllTalk voices
+        self.alltalk_voices = ["female_06.wav", "male_01.wav", "female_01.wav", "male_02.wav", "female_02.wav", "male_03.wav"]
+        self.alltalk_languages = ["en", "es", "fr", "de", "it", "pt", "nl", "ru", "ja", "ko", "zh"]
 
         # ===== TAB 1: TTS Settings =====
         tts_tab = ttk.Frame(self.notebook, padding=10)
@@ -133,7 +138,7 @@ class KindleTTSApp:
         ttk.Label(engine_frame, text="Engine", bootstyle="secondary").grid(row=0, column=0, sticky="w")
         self.engine_combo = ttk.Combobox(
             engine_frame, textvariable=self.tts_engine_var,
-            values=["Coqui TTS", "XTTS V2 Streaming", "Fast TTS (gTTS)"], state="readonly", width=35
+            values=["Coqui TTS", "XTTS V2 Streaming", "Fast TTS (gTTS)", "AllTalk TTS"], state="readonly", width=35
         )
         self.engine_combo.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(2, 8))
         self.engine_combo.bind("<<ComboboxSelected>>", self._on_engine_changed)
@@ -582,6 +587,8 @@ class KindleTTSApp:
             threading.Thread(target=self._run_coqui, daemon=True).start()
         elif engine == "Fast TTS (gTTS)":
             threading.Thread(target=self._run_realtime_tts, daemon=True).start()
+        elif engine == "AllTalk TTS":
+            threading.Thread(target=self._run_alltalk, daemon=True).start()
         else:  # XTTS V2 Streaming
             threading.Thread(target=self._run_xtts_streaming, daemon=True).start()
 
@@ -606,6 +613,16 @@ class KindleTTSApp:
             self.sample_entry.config(state="disabled")
             self.play_btn.config(state="disabled")
             self.voice_label.config(text="Language:")
+        elif engine == "AllTalk TTS":
+            # Show languages as models, voices as voices
+            self.model_combo.config(values=self.alltalk_languages, state="readonly")
+            self.model_var.set("en")
+            self.voice_combo.config(values=self.alltalk_voices, state="readonly")
+            self.voice_var.set(self.alltalk_voices[0])
+            # Disable sample preview for AllTalk
+            self.sample_entry.config(state="disabled")
+            self.play_btn.config(state="disabled")
+            self.voice_label.config(text="Voice:")
         elif engine == "XTTS V2 Streaming":
             # Restrict to XTTS models, enable voices mapped to XTTS
             self.model_combo.config(values=self.xtts_models, state="readonly")
@@ -633,11 +650,14 @@ class KindleTTSApp:
         # but Coqui XTTS and gTTS both use voice selections.
         is_stream = engine == "XTTS V2 Streaming"
         is_gtts = engine == "Fast TTS (gTTS)"
+        is_alltalk = engine == "AllTalk TTS"
         # Everything stays visible, but we can relabel voice label for clarity
         if is_stream and self.model_var.get().endswith("xtts_v2"):
             self.voice_label.config(text="Reference Speaker:")
         elif is_gtts:
             self.voice_label.config(text="Language:")
+        elif is_alltalk:
+            self.voice_label.config(text="Voice:")
         else:
             self.voice_label.config(text="Voice / Speaker:")
 
@@ -715,7 +735,6 @@ class KindleTTSApp:
                 screen_capture=screen,
                 ocr_service=ocr,
                 crop_settings=(self.crop_left, self.crop_top, self.crop_right, self.crop_bottom),
-                page_delay_seconds=page_delay,
             )
 
             self.loop.run_until_complete(
@@ -748,6 +767,15 @@ class KindleTTSApp:
             except Exception:
                 volume = 100
 
+            # Turn timing: UI stores turn-at-ratio (e.g., 0.72 = turn at 72%).
+            # TTS services expect a buffer (1 - ratio).
+            try:
+                turn_ratio = float(self.page_delay_var.get())
+            except Exception:
+                turn_ratio = 0.72
+            turn_ratio = max(0.05, min(0.95, turn_ratio))
+            page_turn_buffer = 1.0 - turn_ratio
+
             tts = CoquiTTSService(
                 model=model,
                 voice=voice,
@@ -755,6 +783,7 @@ class KindleTTSApp:
                 volume=volume,
                 espeak_path=getattr(config, "COQUI_ESPEAK_PATH", None),
                 device=device,  # Pass explicit device selection
+                page_turn_buffer=page_turn_buffer,
             )
 
             window_controller = WindowController()
@@ -777,7 +806,6 @@ class KindleTTSApp:
                 screen_capture=screen,
                 ocr_service=ocr,
                 crop_settings=(self.crop_left, self.crop_top, self.crop_right, self.crop_bottom),
-                page_delay_seconds=page_delay,
             )
 
             # Determine reference audio only for XTTS model in Coqui
@@ -843,7 +871,78 @@ class KindleTTSApp:
                 screen_capture=screen,
                 ocr_service=ocr,
                 crop_settings=(self.crop_left, self.crop_top, self.crop_right, self.crop_bottom),
-                page_delay_seconds=page_delay,
+            )
+
+            self.loop.run_until_complete(
+                self.orchestrator.run_with_callbacks(
+                    stop_event=self.stop_event,
+                    on_page_update=self._update_page,
+                    on_time_update=self._on_time_update,
+                    reference_audio=None,
+                    xtts_streaming=False,
+                )
+            )
+        finally:
+            self.start_btn.config(state=tk.NORMAL)
+            self.stop_btn.config(state=tk.DISABLED)
+
+    def _run_alltalk(self):
+        """Run reader using AllTalk TTS API server."""
+        asyncio.set_event_loop(self.loop)
+        try:
+            # Build AllTalk TTS service
+            voice = self.voice_var.get()
+            language = self.model_var.get()  # Model dropdown is used for language in AllTalk
+            try:
+                rate = float(self.rate_var.get())
+            except Exception:
+                rate = 1.0
+            try:
+                volume = int(float(self.volume_var.get()))
+            except Exception:
+                volume = 100
+            
+            # Get AllTalk server URL from config or use default
+            server_url = getattr(config, "ALLTALK_SERVER", "http://127.0.0.1:7851")
+
+            # Turn timing: UI stores turn-at-ratio (e.g., 0.72 = turn at 72%).
+            # AllTalk service expects a buffer (1 - ratio).
+            try:
+                turn_ratio = float(self.page_delay_var.get())
+            except Exception:
+                turn_ratio = 0.72
+            turn_ratio = max(0.05, min(0.95, turn_ratio))
+            page_turn_buffer = 1.0 - turn_ratio
+            
+            tts = AllTalkTTSService(
+                voice=voice,
+                language=language,
+                rate=rate,
+                volume=volume,
+                server_url=server_url,
+                page_turn_buffer=page_turn_buffer,
+            )
+
+            window_controller = WindowController()
+            if not window_controller.find_window(self.selected_window_var.get()):
+                self.status_var.set(f"Window not found: {self.selected_window_var.get()}")
+                return
+            
+            screen = ScreenCaptureService()
+            ocr = OCRService(config.TESSERACT_PATH)
+
+            # Parse page delay (seconds) from UI
+            try:
+                page_delay = float(self.page_delay_var.get())
+            except Exception:
+                page_delay = 0.30
+
+            self.orchestrator = KindleReaderOrchestrator(
+                tts_service=tts,
+                kindle_controller=window_controller,
+                screen_capture=screen,
+                ocr_service=ocr,
+                crop_settings=(self.crop_left, self.crop_top, self.crop_right, self.crop_bottom),
             )
 
             self.loop.run_until_complete(

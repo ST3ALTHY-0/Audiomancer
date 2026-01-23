@@ -5,7 +5,7 @@ from services.screen_capture import ScreenCaptureService
 from services.ocr_service import OCRService
 from controllers.WindowController import WindowController
 import config
-from services.tts_xtts_client import stream_tts, play_stream
+from services.allTalk_client import stream_tts, play_stream
 import threading
 
 
@@ -19,19 +19,12 @@ class KindleReaderOrchestrator:
         screen_capture: ScreenCaptureService,
         ocr_service: OCRService,
         crop_settings: Optional[Tuple[int, int, int, int]] = None,
-        page_delay_seconds: Optional[float] = None,
     ):
         self.tts = tts_service
         self.kindle = kindle_controller
         self.screen_capture = screen_capture
         self.ocr = ocr_service
         self.crop_settings = crop_settings or self._load_crop_settings_from_config()
-        # User-controlled turn timing: fraction of audio duration to wait before turning page
-        # E.g., 0.72 = turn at 72% of audio playback (allows overlap)
-        try:
-            self.page_turn_timing = max(0.0, min(1.0, float(page_delay_seconds))) if page_delay_seconds is not None else 0.72
-        except Exception:
-            self.page_turn_timing = 0.72  # Default to 72%
 
     def _load_crop_settings_from_config(self) -> Tuple[int, int, int, int]:
         return (
@@ -79,9 +72,13 @@ class KindleReaderOrchestrator:
         next_text: Optional[str],
         reference_audio: Optional[str],
         on_time_update
-    ) -> Tuple[float, Optional[asyncio.Task]]:
-        """Play text using TTS service and return duration and playback task."""
-        duration, _ = await self.tts.speak(
+    ) -> Tuple[float, float, Optional[asyncio.Task]]:
+        """Play text using TTS service and return duration, page_turn_delay, and playback task.
+        
+        Returns:
+            Tuple of (duration, page_turn_delay, playback_task)
+        """
+        duration, page_turn_delay = await self.tts.speak(
             current_text,
             next_text=next_text,
             reference_audio=reference_audio,
@@ -89,12 +86,13 @@ class KindleReaderOrchestrator:
         playback_task = asyncio.create_task(self.tts.wait_for_playback())
 
         print(
-            f"[DEBUG] Duration: {duration:.2f}s, {len(current_text)} chars, {len(current_text.split())} words")
+            f"[DEBUG] Duration: {duration:.2f}s, Page Turn Delay: {page_turn_delay:.2f}s, "
+            f"{len(current_text)} chars, {len(current_text.split())} words")
 
         if on_time_update:
             on_time_update(duration)
 
-        return duration, playback_task
+        return duration, page_turn_delay, playback_task
 
     async def run_with_callbacks(
         self,
@@ -104,7 +102,11 @@ class KindleReaderOrchestrator:
         reference_audio=None,
         xtts_streaming=False
     ):
-        """Run the reader with UI callbacks. Supports both TTS service and XTTS streaming."""
+        """Run the reader with UI callbacks. Supports both TTS service and XTTS streaming.
+        
+        The TTS service handles prefetching internally, so the orchestrator focuses on
+        page turning timing which is provided by the TTS service.
+        """
         await self.initialize()
 
         # Read first page
@@ -116,43 +118,39 @@ class KindleReaderOrchestrator:
             on_page_update(current_text)
 
         last_text = None
-        next_text = None
 
         while not stop_event.is_set():
             try:
-                # Play current page audio
+                # Play current page audio and get timing info
+                next_text = None
                 playback_task = None
                 duration = 0.0
+                page_turn_delay = 0.0
 
                 if xtts_streaming:
                     await self._play_xtts_streaming(current_text)
                     duration = 0.5  # Placeholder duration
+                    page_turn_delay = duration * 0.7  # Use 70% as default
                 elif self.tts:
-                    duration, playback_task = await self._play_tts_service(
-                        current_text, next_text, reference_audio, on_time_update
+                    # Start playback of current page; we prefetch the next page after turning
+                    duration, page_turn_delay, playback_task = await self._play_tts_service(
+                        current_text, None, reference_audio, on_time_update
                     )
 
-                # Turn page at user-specified fraction of audio duration
-                # This allows the page turn to happen during playback for smoother transitions
-                turn_delay = max(0.1, duration * self.page_turn_timing) if duration else 0.3
-                await asyncio.sleep(turn_delay)
+                # Turn page at TTS-recommended delay (allows page turn during playback)
+                print(f"[DEBUG] Waiting {page_turn_delay:.2f}s before turning page")
+                await asyncio.sleep(page_turn_delay)
 
                 self.kindle.turn_page()
                 await asyncio.sleep(0.2)  # Brief delay for page to render
 
-                # Read next page
+                # OCR next page while current audio is still playing, then prefetch its audio
                 next_text = await self.read_current_page()
-                if next_text == last_text:
-                    next_text = None
-
-                # Update UI with new page
-                if on_page_update and next_text:
-                    on_page_update(next_text)
-
-                # Prefetch audio for next page while current audio finishes
-                if self.tts and next_text:
-                    await self.tts.prefetch_next(next_text, reference_audio)
-                    print("[DEBUG] Prefetch started for next page")
+                if next_text and next_text != current_text and self.tts:
+                    try:
+                        await self.tts.prefetch_next(next_text, reference_audio)
+                    except Exception as e:
+                        print(f"Prefetch failed: {e}")
 
                 # Wait for current playback to finish
                 if playback_task:
@@ -161,9 +159,17 @@ class KindleReaderOrchestrator:
                     except Exception as e:
                         print(f"Playback wait error: {e}")
 
-                # Move to next page
+                # Read the new current page
                 last_text = current_text
                 current_text = next_text
+
+                # Check if we got the same text (reached end or error)
+                if current_text == last_text:
+                    print("[DEBUG] Same text detected, stopping")
+                    break
+
+                if on_page_update and current_text:
+                    on_page_update(current_text)
 
                 if not current_text:
                     await asyncio.sleep(0.5)
