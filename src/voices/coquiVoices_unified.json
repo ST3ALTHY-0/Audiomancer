@@ -193,37 +193,55 @@
           "filename": "female_06.wav",
           "name": "Female 06",
           "gender": "female",
-          "description": "AllTalk female voice 06"
+          "description": "AllTalk female voice 06",
+          "model": "tts_models/multilingual/multi-dataset/xtts_v2",
+          "language": "en",
+          "engine": "alltalk"
         },
         {
           "filename": "male_01.wav",
           "name": "Male 01",
           "gender": "male",
-          "description": "AllTalk male voice 01"
+          "description": "AllTalk male voice 01",
+          "model": "tts_models/multilingual/multi-dataset/xtts_v2",
+          "language": "en",
+          "engine": "alltalk"
         },
         {
           "filename": "female_01.wav",
           "name": "Female 01",
           "gender": "female",
-          "description": "AllTalk female voice 01"
+          "description": "AllTalk female voice 01",
+          "model": "tts_models/multilingual/multi-dataset/xtts_v2",
+          "language": "en",
+          "engine": "alltalk"
         },
         {
           "filename": "male_02.wav",
           "name": "Male 02",
           "gender": "male",
-          "description": "AllTalk male voice 02"
+          "description": "AllTalk male voice 02",
+          "model": "tts_models/multilingual/multi-dataset/xtts_v2",
+          "language": "en",
+          "engine": "alltalk"
         },
         {
           "filename": "female_02.wav",
           "name": "Female 02",
           "gender": "female",
-          "description": "AllTalk female voice 02"
+          "description": "AllTalk female voice 02",
+          "model": "tts_models/multilingual/multi-dataset/xtts_v2",
+          "language": "en",
+          "engine": "alltalk"
         },
         {
           "filename": "male_03.wav",
           "name": "Male 03",
           "gender": "male",
-          "description": "AllTalk male voice 03"
+          "description": "AllTalk male voice 03",
+          "model": "tts_models/multilingual/multi-dataset/xtts_v2",
+          "language": "en",
+          "engine": "alltalk"
         }
       ],
       "languages": [

@@ -1,27 +1,26 @@
 # Audiomancer - Text-to-Speech Reader
 
-A Windows utility that uses OCR to extract text from any window and reads it aloud using local TTS engines with natural-sounding voices. Features synchronized page/content turning and smart audio prefetching for seamless reading.
+A Windows utility that uses OCR to extract text from any window and reads it aloud using local TTS engines with natural-sounding voices. Features synchronized page/content turning and audio prefetching for continuous reading.
 
 ## Features
 
-- **Smart OCR Integration**: Captures text from any window using Tesseract OCR
+- **OCR Integration**: Captures text from any window using Tesseract OCR
 - **Multiple TTS Engines**: 
   - Coqui TTS (VCTK/VITS) - Fast, pretrained models with good quality
   - XTTS v2 - Custom voice cloning with streaming support
   - gTTS - Fast fallback option
+  - AllTalk - Local server with many engines and options
 - **Synchronized Reading**: Content turns automatically sync with spoken audio
-- **Smart Prefetching**: Generates next page audio while current page plays for seamless transitions
-- **Contraction Handling**: Automatically expands contractions for better VITS pronunciation
+- **Prefetching**: Generates next page audio while current page plays for seamless transitions
 - **Background Operation**: Works with any window in background (window must be visible, not minimized)
 - **GPU Acceleration**: CUDA support for faster TTS generation on compatible GPUs
 
 ## TODO
-- add more tts engines (supertonic seems cool)
 - allow user to customize what buttons are pressed and when (save in userSetting config)
-- make the gTTS page turning/timing better (kinda with next point)
-- figure out deepspeed for xtts_api_server on linux so we can run our own server that might be able to do custom voices in real time
+- make the gTTS page turning/timing better
+- figure out/implement streaming audio
 - maybe split text into sentences before sending it to TTS
-
+- clean up files
 
 ## Quick Start
 
@@ -62,6 +61,10 @@ Models download automatically on first run.
 1. Models download automatically
 2. Place reference voice samples in `speakers/` directory
 3. Samples should be clear, 6-12 seconds of speech
+
+**Install AllTalk TTS (if you want more TTS options)**
+Alltalk has a lot of engines and custom options, very nice
+only have xtts_v2 working for now, but I plan on adding some of the other engines. 
 
 ### 4. Run the Application
 
@@ -129,7 +132,7 @@ Tested with 2.5 but other version likely work
 
 ## Known Issues
 
-- XTTS is slower than real-time without GPU acceleration
+- XTTS is slower than real-time without GPU acceleration (Xtts works with Alltalk, but is GPU heavy)
 - Window must remain visible (can be mostly off-screen)
 - First page may have slight delay while model loads
 

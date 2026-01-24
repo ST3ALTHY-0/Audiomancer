@@ -33,7 +33,7 @@ class KindleTTSApp:
     def __init__(self, root):
         self.root = root
         self.root.title("TTS Reader")
-        self.root.geometry("1000x750")
+        self.root.geometry("1050x800")
         self.root.minsize(800, 450)
 
         # DPI scaling
@@ -78,21 +78,55 @@ class KindleTTSApp:
         self.right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
         # Load voices
-        voices_path = os.path.join(os.path.dirname(__file__), "voices", "coquiVoices.json")
+        voices_path = os.path.join(os.path.dirname(__file__), "voices", "coquiVoices_unified.json")
         with open(voices_path, "r", encoding="utf-8") as f:
-            self.voice_data = json.load(f)
+            voices_data = json.load(f)
+        
+        # Extract voices from all engines (only those with 'model' field)
+        self.voice_data = []
+        if "engines" in voices_data:
+            for engine_name, engine_info in voices_data["engines"].items():
+                if "voices" in engine_info:
+                    # Only include voices that have a 'model' field
+                    for voice in engine_info["voices"]:
+                        if "model" in voice:
+                            self.voice_data.append(voice)
 
         self.models = sorted({v["model"] for v in self.voice_data})
         self.model_to_voices = {}
         self.voice_to_sample = {}
         self.voice_to_reference_audio = {}
+        self.voice_to_engine = {}  # Map voice -> engine type
+        self.model_to_languages = {}  # Map model -> available languages
+        self.model_language_to_voices = {}  # Map (model, language) -> voices
+        self.model_language_engine_to_voices = {}  # Map (model, language, engine) -> voices
         for v in self.voice_data:
-            self.model_to_voices.setdefault(v["model"], []).append(v["person"])
-            self.voice_to_sample[v["person"]] = v.get("sample", "")
-            self.voice_to_reference_audio[v["person"]] = v.get("reference_audio")
+            # Handle both "person" field (Coqui) and "name"/"filename" fields (AllTalk)
+            voice_id = v.get("person") or v.get("name") or v.get("filename")
+            engine_type = v.get("engine", "coqui")  # Default to coqui if not specified
+            self.model_to_voices.setdefault(v["model"], []).append(voice_id)
+            self.voice_to_sample[voice_id] = v.get("sample", "")
+            self.voice_to_reference_audio[voice_id] = v.get("reference_audio")
+            self.voice_to_engine[voice_id] = engine_type
+            # Build language mappings
+            lang = v.get("language", "en")
+            self.model_to_languages.setdefault(v["model"], set()).add(lang)
+            key = (v["model"], lang)
+            self.model_language_to_voices.setdefault(key, []).append(voice_id)
+            # Build engine-specific mappings
+            key_engine = (v["model"], lang, engine_type)
+            self.model_language_engine_to_voices.setdefault(key_engine, []).append(voice_id)
+        
+        # Convert language sets to sorted lists, default to 'en' if no languages
+        for model in self.model_to_languages:
+            langs = sorted(list(self.model_to_languages[model]))
+            self.model_to_languages[model] = langs if langs else ["en"]
 
         # Tk variables
         self.model_var = tk.StringVar(value=self.models[0])
+        # Get available languages for default model, default to 'en'
+        default_langs = self.model_to_languages.get(self.models[0], ["en"])
+        self.language_var = tk.StringVar(value=default_langs[0] if default_langs else "en")
         self.voice_var = tk.StringVar(value=self.model_to_voices[self.models[0]][0])
         self.rate_var = tk.StringVar(value=str(getattr(config, "TTS_RATE", 1.0)))
         self.volume_var = tk.StringVar(value=str(getattr(config, "TTS_VOLUME", 100)))
@@ -116,7 +150,7 @@ class KindleTTSApp:
         self.device_var = tk.StringVar(value="cuda" if cuda_available else "cpu")
         self.cuda_status = f"GPU ({cuda_name})" if cuda_available else "CPU (GPU not detected)"
 
-        # Engine selection
+        # TTS Backend selection
         self.tts_engine_var = tk.StringVar(value="Coqui TTS")
         
         # gTTS language options and XTTS-only model list
@@ -131,11 +165,11 @@ class KindleTTSApp:
         tts_tab = ttk.Frame(self.notebook, padding=10)
         self.notebook.add(tts_tab, text="🎤 TTS Settings")
         
-        # Engine & Voice Section
-        engine_frame = ttk.Labelframe(tts_tab, text="Engine & Voice", bootstyle="info", padding=12)
+        # TTS Backend & Voice Section
+        engine_frame = ttk.Labelframe(tts_tab, text="TTS Backend & Voice", bootstyle="info", padding=12)
         engine_frame.pack(fill=tk.X, pady=(0, 12))
         
-        ttk.Label(engine_frame, text="Engine", bootstyle="secondary").grid(row=0, column=0, sticky="w")
+        ttk.Label(engine_frame, text="TTS Backend", bootstyle="secondary").grid(row=0, column=0, sticky="w")
         self.engine_combo = ttk.Combobox(
             engine_frame, textvariable=self.tts_engine_var,
             values=["Coqui TTS", "XTTS V2 Streaming", "Fast TTS (gTTS)", "AllTalk TTS"], state="readonly", width=35
@@ -154,8 +188,19 @@ class KindleTTSApp:
         self.model_combo.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(2, 8))
         self.model_combo.bind("<<ComboboxSelected>>", self._on_model_changed)
         
+        ttk.Label(engine_frame, text="Language", bootstyle="secondary").grid(row=4, column=0, sticky="w")
+        self.language_combo = ttk.Combobox(
+            engine_frame,
+            textvariable=self.language_var,
+            values=self.model_to_languages.get(self.model_var.get(), ["en"]),
+            state="readonly",
+            width=35,
+        )
+        self.language_combo.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(2, 8))
+        self.language_combo.bind("<<ComboboxSelected>>", self._on_language_changed)
+        
         self.voice_label = ttk.Label(engine_frame, text="Voice / Speaker", bootstyle="secondary")
-        self.voice_label.grid(row=4, column=0, sticky="w")
+        self.voice_label.grid(row=6, column=0, sticky="w")
         self.voice_combo = ttk.Combobox(
             engine_frame,
             textvariable=self.voice_var,
@@ -163,18 +208,18 @@ class KindleTTSApp:
             state="readonly",
             width=40,
         )
-        self.voice_combo.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(2, 8))
+        self.voice_combo.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(2, 8))
         self.voice_combo.bind("<<ComboboxSelected>>", self._on_voice_changed)
         
-        ttk.Label(engine_frame, text="Sample", bootstyle="secondary").grid(row=6, column=0, sticky="w")
+        ttk.Label(engine_frame, text="Sample", bootstyle="secondary").grid(row=8, column=0, sticky="w")
         self.sample_entry = ttk.Entry(engine_frame, textvariable=self.sample_var, width=45)
-        self.sample_entry.grid(row=7, column=0, sticky="ew", pady=(2, 6))
+        self.sample_entry.grid(row=9, column=0, sticky="ew", pady=(2, 6))
         self.play_btn = ttk.Button(engine_frame, text="Play", command=self._play_sample, bootstyle="info-outline")
-        self.play_btn.grid(row=7, column=1, padx=(6, 0))
+        self.play_btn.grid(row=9, column=1, padx=(6, 0))
         
-        ttk.Label(engine_frame, text=f"Device: {self.cuda_status}").grid(row=8, column=0, columnspan=2, sticky="w", pady=(8, 2))
+        ttk.Label(engine_frame, text=f"Device: {self.cuda_status}").grid(row=10, column=0, columnspan=2, sticky="w", pady=(8, 2))
         device_row = ttk.Frame(engine_frame)
-        device_row.grid(row=9, column=0, columnspan=2, sticky="w")
+        device_row.grid(row=11, column=0, columnspan=2, sticky="w")
         self.device_combo = ttk.Combobox(
             device_row,
             textvariable=self.device_var,
@@ -605,29 +650,45 @@ class KindleTTSApp:
         self._toggle_controls_for_engine(self.tts_engine_var.get())
         engine = self.tts_engine_var.get()
         if engine == "Fast TTS (gTTS)":
-            # Show languages as models; disable voice selection and sample controls
-            self.model_combo.config(values=self.gtts_languages, state="readonly")
-            self.model_var.set(self.gtts_languages[0])
+            # Show languages as models; disable model, language, voice selection and sample controls
+            self.model_combo.config(state="disabled")
+            self.model_combo.set("")
+            self.language_combo.config(values=self.gtts_languages, state="readonly")
+            self.language_var.set(self.gtts_languages[0])
             self.voice_combo.config(values=[], state="disabled")
             self.voice_var.set("")
             self.sample_entry.config(state="disabled")
             self.play_btn.config(state="disabled")
             self.voice_label.config(text="Language:")
         elif engine == "AllTalk TTS":
-            # Show languages as models, voices as voices
-            self.model_combo.config(values=self.alltalk_languages, state="readonly")
-            self.model_var.set("en")
-            self.voice_combo.config(values=self.alltalk_voices, state="readonly")
-            self.voice_var.set(self.alltalk_voices[0])
+            # AllTalk uses xtts_v2 model with multiple voices (multilingual)
+            alltalk_model = "tts_models/multilingual/multi-dataset/xtts_v2"
+            self.model_combo.config(values=[alltalk_model], state="readonly")
+            self.model_var.set(alltalk_model)
+            # Show all available languages for AllTalk
+            alltalk_languages = self.alltalk_languages
+            self.language_combo.config(values=alltalk_languages, state="readonly")
+            # Get current language or default to 'en'
+            if self.language_var.get() not in alltalk_languages:
+                self.language_var.set("en")
+            # Get AllTalk voices only (filter by engine)
+            alltalk_voices = [v for v in self.voice_data if v.get("engine") == "alltalk"]
+            voice_names = [v.get("name") or v.get("filename") for v in alltalk_voices]
+            self.voice_combo.config(values=voice_names, state="readonly")
+            if voice_names:
+                self.voice_var.set(voice_names[0])
             # Disable sample preview for AllTalk
             self.sample_entry.config(state="disabled")
             self.play_btn.config(state="disabled")
             self.voice_label.config(text="Voice:")
         elif engine == "XTTS V2 Streaming":
-            # Restrict to XTTS models, enable voices mapped to XTTS
+            # Restrict to XTTS models, enable voices mapped to XTTS (exclude AllTalk)
             self.model_combo.config(values=self.xtts_models, state="readonly")
             self.model_var.set(self.xtts_models[0])
+            self.language_combo.config(state="readonly")
             voices = self.model_to_voices.get(self.model_var.get(), [])
+            # Filter out AllTalk voices
+            voices = [v for v in voices if self.voice_to_engine.get(v) != "alltalk"]
             self.voice_combo.config(values=voices, state="readonly")
             if voices:
                 self.voice_var.set(voices[0])
@@ -636,9 +697,12 @@ class KindleTTSApp:
             self.play_btn.config(state="normal")
             self.voice_label.config(text="Reference Speaker:")
         else:
-            # Coqui: show all models and voices
+            # Coqui: show all models and voices (exclude AllTalk)
             self.model_combo.config(values=self.models, state="readonly")
+            self.language_combo.config(state="readonly")
             voices = self.model_to_voices.get(self.model_var.get(), [])
+            # Filter out AllTalk voices
+            voices = [v for v in voices if self.voice_to_engine.get(v) != "alltalk"]
             self.voice_combo.config(values=voices, state="readonly")
             if voices and not self.voice_var.get():
                 self.voice_var.set(voices[0])
@@ -663,11 +727,12 @@ class KindleTTSApp:
 
     def _on_model_changed(self, _evt=None):
         model = self.model_var.get()
-        voices = self.model_to_voices.get(model, [])
-        self.voice_combo.config(values=voices)
-        if voices:
-            self.voice_var.set(voices[0])
-        self._on_voice_changed()
+        # Update language options for the selected model
+        langs = self.model_to_languages.get(model, ["en"])
+        self.language_combo.config(values=langs)
+        if langs:
+            self.language_var.set(langs[0])
+        self._on_language_changed()
         # Adjust sample controls depending on model/engine
         is_xtts = model.endswith("xtts_v2")
         is_vits = "vits" in model.lower()
@@ -686,6 +751,29 @@ class KindleTTSApp:
         else:
             self.sample_entry.config(state="readonly")
             self.play_btn.config(state="normal")
+
+    def _on_language_changed(self, _evt=None):
+        model = self.model_var.get()
+        language = self.language_var.get()
+        engine = self.tts_engine_var.get()
+        
+        # Special handling for AllTalk - voices work with all languages
+        if engine == "AllTalk TTS":
+            alltalk_voices = [v for v in self.voice_data if v.get("engine") == "alltalk"]
+            voice_names = [v.get("name") or v.get("filename") for v in alltalk_voices]
+            self.voice_combo.config(values=voice_names)
+            if voice_names:
+                self.voice_var.set(voice_names[0])
+        else:
+            # For Coqui and XTTS, filter by model and language, excluding AllTalk voices
+            key = (model, language)
+            voices = self.model_language_to_voices.get(key, [])
+            # Filter out AllTalk voices
+            voices = [v for v in voices if self.voice_to_engine.get(v) != "alltalk"]
+            self.voice_combo.config(values=voices)
+            if voices:
+                self.voice_var.set(voices[0])
+        self._on_voice_changed()
 
     def _on_voice_changed(self, _evt=None):
         voice = self.voice_var.get()

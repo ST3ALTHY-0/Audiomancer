@@ -53,6 +53,7 @@ src/resources/userSettings.json
 voices/samples/*.wav
 
 # Other files
+test/
 test_cuda.py
 test_realtime_tts.py
 check_cuda.py
